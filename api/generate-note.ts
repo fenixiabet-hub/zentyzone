@@ -1,43 +1,37 @@
 /**
  * Zentyzone — Funcion serverless "generate-note"
  * ------------------------------------------------------------
- * Este archivo corre en el SERVIDOR de Vercel, NUNCA en el navegador.
- * Es el unico lugar que toca la clave secreta ANTHROPIC_API_KEY.
+ * Corre en el SERVIDOR de Vercel. Es el unico lugar que toca la
+ * clave secreta ANTHROPIC_API_KEY.
  *
- * IMPORTANTE: este archivo es AUTOSUFICIENTE a proposito. Incluye el
- * System Prompt de Zenty aqui mismo, sin importarlo de la carpeta
- * src/, porque las funciones serverless de Vercel deben ser
- * autocontenidas. Si quieres cambiar COMO redacta Zenty, edita la
- * funcion getZentySystemPrompt mas abajo en ESTE archivo.
+ * Funciona como una CONVERSACION: recibe el historial de mensajes
+ * y Zenty responde una de dos cosas:
+ *   - una PREGUNTA (si le falta informacion), o
+ *   - la NOTA final (en ingles y espanol).
  *
- * Vercel sirve este archivo en la ruta /api/generate-note.
+ * AUTOSUFICIENTE: el System Prompt de Zenty esta aqui mismo. Si
+ * quieres cambiar como se comporta Zenty, edita getZentySystemPrompt.
  * ------------------------------------------------------------
  */
 import Anthropic from '@anthropic-ai/sdk';
 
-// ============================================================
-// CONFIGURACION
-// ------------------------------------------------------------
-// Modelo de Claude que usa Zenty. Verificado en la documentacion
-// oficial de Anthropic (mayo 2026): Claude Sonnet 4.6 es el mejor
-// equilibrio entre velocidad, calidad y costo.
+// Modelo de Claude (verificado en docs de Anthropic, mayo 2026).
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
-
-// Maximo de tokens (longitud) de la nota generada.
-const MAX_TOKENS = 4096;
-// ============================================================
+// Maximo de tokens: alto porque la nota viene en 2 idiomas.
+const MAX_TOKENS = 8000;
 
 type NoteType = 'rbt_daily' | 'soap' | 'bcba_progress';
 type Language = 'es' | 'en';
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
 
 const VALID_NOTE_TYPES: NoteType[] = ['rbt_daily', 'soap', 'bcba_progress'];
 const VALID_LANGUAGES: Language[] = ['es', 'en'];
 
 // ============================================================
-// SYSTEM PROMPT DE ZENTY
-// ------------------------------------------------------------
-// Esta es la "personalidad" e instrucciones de Zenty. Es la copia
-// que usa el servidor de verdad. Para ajustarla, edita aqui.
+// SYSTEM PROMPT DE ZENTY  (editar aqui para cambiar su conducta)
 // ============================================================
 function getZentySystemPrompt(noteType: NoteType, language: Language): string {
   const typeInstructions = {
@@ -57,23 +51,52 @@ function getZentySystemPrompt(noteType: NoteType, language: Language): string {
 
   return `Eres Zenty, un asistente de redacción para profesionales RBT y BCBA que trabajan en servicios de ABA (Applied Behavior Analysis) en Estados Unidos.
 
-FUNCIÓN: Convertir notas informales y fragmentadas en un borrador narrativo profesional, claro y listo para que el profesional lo revise, ajuste y firme antes de entregarlo en su EMR.
+FUNCIÓN: Convertir notas informales y fragmentadas de una sesión en un borrador de nota clínica profesional, claro y listo para que el profesional lo revise, ajuste y firme antes de entregarlo en su EMR.
 
 NO eres un sistema clínico. NO tomas decisiones clínicas. NO diagnosticas. NO determinas la función de un comportamiento (eso lo hace el BCBA). NO inventas información que el profesional no proporcionó.
 
-PRIVACIDAD: Nunca incluyas en la nota nombres completos, apellidos, fechas de nacimiento, direcciones, números de teléfono, ni Medicaid IDs. Solo iniciales del cliente. Refiérete al cliente como "the client" o "el cliente". Si detectas un nombre completo o fecha de nacimiento en el input, reemplázalo automáticamente por iniciales y agrega al final: "Note: Personal identifiers were removed for privacy."
+=== CÓMO RESPONDES ===
+Estás en una conversación con el profesional. En CADA turno haces UNA de dos cosas, y tu respuesta SIEMPRE empieza con una de estas dos etiquetas exactas:
 
-IDIOMA: Detecta el idioma del input. Si está mayormente en español, redacta en ESPAÑOL PROFESIONAL. Si está mayormente en inglés, redacta en INGLÉS CLÍNICO. NUNCA mezcles. La terminología técnica de ABA (DRA, DRO, prompting, mand, tact, etc.) se mantiene en inglés incluso dentro de una nota en español.
+[1] Si falta información crítica para redactar una buena nota (duración de la sesión, objetivos o programas trabajados, comportamiento principal observado, o la respuesta/progreso del cliente), tu respuesta empieza EXACTAMENTE con:
+PREGUNTA:
+seguida de UNA sola pregunta, específica y clara, para conseguir ese dato. Una pregunta por turno. Tono cálido y directo, no robótico. Haz la pregunta en el idioma del profesional.
 
-LONGITUD: Adaptativa al input. Si el RBT escribe poco, la nota es concisa. Si escribe mucho, la nota es completa. No inventes contenido para alargar.
+[2] Si ya tienes información suficiente, entregas la nota. Tu respuesta empieza EXACTAMENTE con:
+NOTA:
+seguida del contenido de la nota en el formato de abajo.
 
-DATOS FALTANTES: Si falta información crítica (duración de la sesión, objetivos trabajados, comportamiento principal), PREGUNTA antes de generar. Formato de pregunta: "Antes de redactar tu nota, necesito que me confirmes: [pregunta específica]". Una sola pregunta por turno. Sé directo, no robótico.
+Pregunta SOLO cuando de verdad falte algo importante. Si el profesional ya dio lo esencial, NO preguntes de más: entrega la nota directamente. Como máximo haz 1 o 2 rondas de preguntas; no interrogues.
 
-ESTILO: Profesional pero claro. Narrativo extenso por defecto (excepto SOAP). Sin jerga innecesaria. El RBT debe poder leer la nota y reconocer su sesión.
+=== PRIVACIDAD ===
+Nunca incluyas nombres completos, apellidos, fechas de nacimiento, direcciones, teléfonos ni Medicaid IDs. Solo iniciales del cliente. Refiérete al cliente como "the client" / "el cliente". Si detectas un nombre completo o fecha de nacimiento, reemplázalo por iniciales y agrega al final de cada versión: "Note: Personal identifiers were removed for privacy."
+
+=== FORMATO DE LA NOTA (lo que va después de "NOTA:") ===
+Entrega SIEMPRE la nota en DOS versiones completas que dicen exactamente lo mismo — primero inglés, luego español — con este formato EXACTO:
+
+==================================================
+ENGLISH — Submit this version to your company
+==================================================
+
+[la nota clínica completa, en inglés clínico profesional]
+
+==================================================
+ESPAÑOL — Solo para tu referencia
+==================================================
+
+[la MISMA nota, completa, en español profesional]
+
+La terminología técnica de ABA (DRA, DRO, prompting, mand, tact, DTT, etc.) se mantiene en inglés en AMBAS versiones. Cada versión es internamente pura: no mezcles idiomas dentro de una misma versión.
+
+=== ESTILO Y LONGITUD ===
+Profesional pero claro. Narrativo extenso por defecto (excepto SOAP). Longitud adaptativa: si el profesional escribió poco, la nota es concisa; si escribió mucho, es completa. No inventes contenido para alargar. El profesional debe poder leer la nota y reconocer su sesión.
 
 ${typeInstructions[noteType]}
 
-OUTPUT: Solo el borrador de la nota. Sin preámbulos como "Aquí está tu nota:". Sin disclaimers al final como "Esta nota es un borrador" (la app ya lo dice). Solo el contenido clínico.`;
+=== REGLAS DE SALIDA ===
+- Tu respuesta SIEMPRE empieza con "PREGUNTA:" o con "NOTA:". Nunca con otra cosa.
+- Sin preámbulos tipo "Aquí está tu nota:".
+- Sin disclaimers al final tipo "Esta nota es un borrador" (la app ya lo aclara).`;
 }
 
 /** Construye una respuesta JSON con el codigo de estado indicado. */
@@ -86,7 +109,7 @@ function jsonResponse(body: unknown, status: number): Response {
 
 /** Maneja las peticiones POST a /api/generate-note */
 export async function POST(request: Request): Promise<Response> {
-  // --- 1. Verificar que la clave secreta este configurada en el servidor ---
+  // --- 1. Verificar la clave secreta ---
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return jsonResponse(
@@ -95,9 +118,9 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // --- 2. Leer y validar el cuerpo de la peticion ---
+  // --- 2. Leer y validar el cuerpo ---
   let body: {
-    inputText?: string;
+    messages?: ChatMessage[];
     noteType?: NoteType;
     language?: Language;
   };
@@ -107,11 +130,26 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: 'La peticion no es un JSON valido.' }, 400);
   }
 
-  const { inputText, noteType, language } = body;
+  const { messages, noteType, language } = body;
 
-  if (!inputText || inputText.trim().length === 0) {
+  if (!Array.isArray(messages) || messages.length === 0) {
+    return jsonResponse({ error: 'Falta la conversacion (messages).' }, 400);
+  }
+
+  // Limpiar los mensajes: solo roles validos y contenido de texto no vacio.
+  const cleanMessages: ChatMessage[] = messages
+    .filter(
+      (m): m is ChatMessage =>
+        !!m &&
+        (m.role === 'user' || m.role === 'assistant') &&
+        typeof m.content === 'string' &&
+        m.content.trim().length > 0,
+    )
+    .map((m) => ({ role: m.role, content: m.content }));
+
+  if (cleanMessages.length === 0 || cleanMessages[0].role !== 'user') {
     return jsonResponse(
-      { error: 'Falta el texto de la sesion (inputText).' },
+      { error: 'La conversacion debe empezar con un mensaje del usuario.' },
       400,
     );
   }
@@ -131,20 +169,30 @@ export async function POST(request: Request): Promise<Response> {
       model: CLAUDE_MODEL,
       max_tokens: MAX_TOKENS,
       system: systemPrompt,
-      messages: [{ role: 'user', content: inputText }],
+      messages: cleanMessages,
     });
 
-    // --- 4. Extraer el texto de la respuesta ---
-    const note = message.content
+    const text = message.content
       .map((block) => (block.type === 'text' ? block.text : ''))
       .join('')
       .trim();
 
-    if (!note) {
+    if (!text) {
       return jsonResponse({ error: 'Claude no devolvio texto.' }, 502);
     }
 
-    return jsonResponse({ note }, 200);
+    // --- 4. Interpretar: pregunta o nota ---
+    let type: 'question' | 'note' = 'note';
+    let content = text;
+    if (/^PREGUNTA:/i.test(text)) {
+      type = 'question';
+      content = text.replace(/^PREGUNTA:/i, '').trim();
+    } else if (/^NOTA:/i.test(text)) {
+      type = 'note';
+      content = text.replace(/^NOTA:/i, '').trim();
+    }
+
+    return jsonResponse({ type, content }, 200);
   } catch (err) {
     console.error('Error al llamar a Claude:', err);
     return jsonResponse(

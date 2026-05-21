@@ -1,26 +1,23 @@
 /**
- * Zentyzone — Generador de notas
+ * Zentyzone — Generador de notas (modo conversación)
  * ------------------------------------------------------------
- * Es el corazon de la app: el RBT/BCBA escribe sus ideas crudas y
- * el boton llama a Claude (a traves de src/lib/claude.ts) para
- * convertirlas en un borrador de nota clinica.
+ * El profesional escribe sus ideas crudas. Zenty puede hacerle
+ * preguntas (chat) si falta información, y al final entrega la
+ * nota en inglés y español.
  *
  * Tambien aplica el limite del plan gratuito: 20 notas de por vida.
- * Al llegar al limite muestra el modal para pasar a Pro.
  * ------------------------------------------------------------
  */
 import { useState, useEffect } from 'react';
-import { FileText, Sparkles, ArrowRight, Copy, Check, Shield, X } from 'lucide-react';
+import { FileText, Sparkles, ArrowRight, Copy, Check, Shield, X, Send } from 'lucide-react';
 import { C } from '../theme';
 import { t, type Lang } from '../translations';
-import { generateNote } from '../lib/claude';
+import { sendToZenty, type ZentyMessage } from '../lib/claude';
 import { supabase } from '../lib/supabase';
 import type { NoteType } from '../prompts/zenty-system-prompt';
 import { UpgradeModal } from './UpgradeModal';
 
 // Tipo de nota fijo por ahora: RBT Daily.
-// Cuando agreguemos el selector de tipo de nota en la interfaz,
-// esto pasara a ser un estado seleccionable por el usuario.
 const NOTE_TYPE: NoteType = 'rbt_daily';
 
 // Limite de notas del plan gratuito (de por vida).
@@ -37,24 +34,31 @@ interface NoteGeneratorProps {
 
 export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
   const L = t[lang];
+  const es = lang === 'es';
+
+  // --- Formulario de la sesion ---
   const [sessionInfo, setSessionInfo] = useState('');
   const [clientInitials, setClientInitials] = useState('');
   const [sessionDate, setSessionDate] = useState(
     new Date().toISOString().split('T')[0],
   );
   const [sessionDuration, setSessionDuration] = useState('');
-  const [generatedNote, setGeneratedNote] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
 
-  // Datos del plan del usuario (cargados desde la tabla profiles).
+  // --- Conversacion con Zenty ---
+  const [chat, setChat] = useState<ZentyMessage[]>([]);
+  const [note, setNote] = useState('');
+  const [answerText, setAnswerText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [copied, setCopied] = useState(false);
+
+  // --- Plan del usuario ---
   const [plan, setPlan] = useState<'free' | 'pro'>('free');
   const [notesCount, setNotesCount] = useState(0);
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
 
-  // Al montar el componente, cargamos el perfil del usuario.
+  // Carga el perfil del usuario al montar.
   useEffect(() => {
     // Sin un userId valido no consultamos (evita peticiones "undefined").
     if (!userId) return;
@@ -81,10 +85,8 @@ export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
     };
   }, [userId]);
 
-  // Guarda la nota en el historial y aumenta el contador del usuario.
-  // Nota: por simplicidad esto se hace desde el navegador; mas adelante
-  // se puede mover al servidor para que el limite no se pueda evadir.
-  const saveNoteAndIncrement = async (note: string) => {
+  // Guarda la nota en el historial y aumenta el contador.
+  const saveNoteAndIncrement = async (noteText: string) => {
     try {
       const durationValue = sessionDuration.trim() ? Number(sessionDuration) : null;
       await supabase.from('notes').insert({
@@ -95,9 +97,8 @@ export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
           durationValue !== null && !Number.isNaN(durationValue) ? durationValue : null,
         note_type: NOTE_TYPE,
         input_text: sessionInfo.trim(),
-        output_text: note,
+        output_text: noteText,
       });
-
       const newCount = notesCount + 1;
       const { error } = await supabase
         .from('profiles')
@@ -105,66 +106,91 @@ export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
         .eq('id', userId);
       if (!error) setNotesCount(newCount);
     } catch {
-      // Si falla guardar el historial no bloqueamos al usuario:
-      // la nota ya se genero y se muestra en pantalla.
+      // Si falla guardar el historial no bloqueamos al usuario.
     }
   };
 
-  const handleGenerateNote = async () => {
-    if (!sessionInfo.trim() || isGenerating) return;
-
-    // Limite del plan gratuito: si ya uso sus 20 notas, mostrar el modal.
-    if (plan === 'free' && notesCount >= FREE_NOTE_LIMIT) {
-      setShowUpgradeModal(true);
-      return;
-    }
-
-    setIsGenerating(true);
-    setGeneratedNote('');
+  // Envia la conversacion a Zenty y procesa su respuesta.
+  const handleSend = async (messagesToSend: ZentyMessage[]) => {
+    setChat(messagesToSend);
+    setIsLoading(true);
     setErrorMsg('');
-
+    setNote('');
     try {
-      // Combinamos los datos de la sesion con el texto crudo para
-      // darle a Zenty todo el contexto en un solo bloque.
-      const metaParts: string[] = [];
-      if (clientInitials.trim()) metaParts.push(`Client initials: ${clientInitials.trim()}`);
-      if (sessionDate) metaParts.push(`Session date: ${sessionDate}`);
-      if (sessionDuration.trim()) {
-        metaParts.push(`Duration: ${sessionDuration.trim()} minutes`);
-      }
-      const meta = metaParts.length > 0 ? `${metaParts.join('\n')}\n\n` : '';
-
-      const note = await generateNote({
-        inputText: meta + sessionInfo.trim(),
+      const reply = await sendToZenty({
+        messages: messagesToSend,
         noteType: NOTE_TYPE,
         language: lang,
       });
-      setGeneratedNote(note);
-
-      // La nota se genero con exito: guardarla y contar +1.
-      await saveNoteAndIncrement(note);
+      if (reply.type === 'question') {
+        setChat([...messagesToSend, { role: 'assistant', content: reply.content }]);
+      } else {
+        setNote(reply.content);
+        await saveNoteAndIncrement(reply.content);
+      }
     } catch (err) {
       setErrorMsg(
         err instanceof Error
           ? err.message
-          : lang === 'es'
+          : es
             ? 'Algo salio mal. Intentalo de nuevo.'
             : 'Something went wrong. Please try again.',
       );
     } finally {
-      setIsGenerating(false);
+      setIsLoading(false);
     }
   };
 
+  // Boton "Darle forma": inicia la conversacion.
+  const handleStart = async () => {
+    if (!sessionInfo.trim() || isLoading) return;
+    if (plan === 'free' && notesCount >= FREE_NOTE_LIMIT) {
+      setShowUpgradeModal(true);
+      return;
+    }
+    const metaParts: string[] = [];
+    if (clientInitials.trim()) metaParts.push(`Client initials: ${clientInitials.trim()}`);
+    if (sessionDate) metaParts.push(`Session date: ${sessionDate}`);
+    if (sessionDuration.trim()) {
+      metaParts.push(`Duration: ${sessionDuration.trim()} minutes`);
+    }
+    const meta = metaParts.length > 0 ? `${metaParts.join('\n')}\n\n` : '';
+    const firstMessage: ZentyMessage = {
+      role: 'user',
+      content: meta + sessionInfo.trim(),
+    };
+    await handleSend([firstMessage]);
+  };
+
+  // Boton "Enviar": responde una pregunta de Zenty.
+  const handleAnswer = async () => {
+    if (!answerText.trim() || isLoading) return;
+    const newMessages: ZentyMessage[] = [
+      ...chat,
+      { role: 'user', content: answerText.trim() },
+    ];
+    setAnswerText('');
+    await handleSend(newMessages);
+  };
+
+  // Boton "Empezar otra nota": limpia todo.
+  const handleReset = () => {
+    setChat([]);
+    setNote('');
+    setErrorMsg('');
+    setAnswerText('');
+    setSessionInfo('');
+  };
+
   const handleCopy = async () => {
-    if (!generatedNote) return;
+    if (!note) return;
     try {
-      await navigator.clipboard.writeText(generatedNote);
+      await navigator.clipboard.writeText(note);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       const ta = document.createElement('textarea');
-      ta.value = generatedNote;
+      ta.value = note;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
@@ -175,11 +201,15 @@ export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
   };
 
   const notesLeft = Math.max(0, FREE_NOTE_LIMIT - notesCount);
+  const conversationActive = chat.length > 0 || note !== '';
+  const lastMessage = chat[chat.length - 1];
+  const awaitingAnswer =
+    !isLoading && !note && chat.length > 0 && lastMessage?.role === 'assistant';
 
   return (
     <>
       <div className="grid lg:grid-cols-2 gap-5 lg:gap-6">
-        {/* Input panel */}
+        {/* ===== Panel de entrada ===== */}
         <section
           className="rounded-[2rem] overflow-hidden flex flex-col"
           style={{ background: 'white', boxShadow: `0 4px 20px ${C.mustardDark}10` }}
@@ -315,24 +345,21 @@ export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
             </div>
 
             <button
-              onClick={handleGenerateNote}
-              disabled={!sessionInfo.trim() || isGenerating}
+              onClick={conversationActive ? handleReset : handleStart}
+              disabled={isLoading || (!conversationActive && !sessionInfo.trim())}
               className="w-full py-4 rounded-full transition-all hover:shadow-xl hover:scale-[1.01] disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 group"
               style={{
                 background: C.brown,
                 color: C.cream,
                 fontWeight: 600,
-                boxShadow: !sessionInfo.trim() || isGenerating ? 'none' : `0 6px 20px ${C.brown}30`,
+                boxShadow:
+                  isLoading || (!conversationActive && !sessionInfo.trim())
+                    ? 'none'
+                    : `0 6px 20px ${C.brown}30`,
               }}
             >
-              {isGenerating ? (
-                <>
-                  <div
-                    className="w-4 h-4 border-2 rounded-full animate-spin"
-                    style={{ borderColor: C.cream, borderTopColor: 'transparent' }}
-                  ></div>
-                  {L.generating}
-                </>
+              {conversationActive ? (
+                es ? 'Empezar otra nota' : 'Start another note'
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
@@ -345,7 +372,7 @@ export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
             {/* Indicador de uso del plan */}
             {profileLoaded && plan === 'free' && (
               <p className="text-center text-xs" style={{ color: C.brownLight }}>
-                {lang === 'es'
+                {es
                   ? `Te quedan ${notesLeft} de ${FREE_NOTE_LIMIT} notas gratis`
                   : `${notesLeft} of ${FREE_NOTE_LIMIT} free notes left`}
               </p>
@@ -355,13 +382,13 @@ export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
                 className="text-center text-xs"
                 style={{ color: C.mustardDark, fontWeight: 600 }}
               >
-                {lang === 'es' ? 'Plan Pro · notas ilimitadas' : 'Pro plan · unlimited notes'}
+                {es ? 'Plan Pro · notas ilimitadas' : 'Pro plan · unlimited notes'}
               </p>
             )}
           </div>
         </section>
 
-        {/* Output panel */}
+        {/* ===== Panel de Zenty (chat + nota) ===== */}
         <section
           className="rounded-[2rem] overflow-hidden flex flex-col"
           style={{ background: 'white', boxShadow: `0 4px 20px ${C.mustardDark}10` }}
@@ -376,7 +403,7 @@ export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
                 {L.generatedNote}
               </h2>
             </div>
-            {generatedNote && (
+            {note && !isLoading && (
               <button
                 onClick={handleCopy}
                 className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs transition-all"
@@ -407,7 +434,52 @@ export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
           </div>
 
           <div className="flex-1 p-6 min-h-[400px] flex flex-col">
-            {!generatedNote && !isGenerating && !errorMsg && (
+            {note && !isLoading ? (
+              /* ----- Nota final lista ----- */
+              <div className="flex-1">
+                <pre
+                  className="whitespace-pre-wrap text-sm leading-relaxed p-5 rounded-2xl"
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    background: C.cream,
+                    color: C.brown,
+                    border: `1px solid ${C.creamWarm}`,
+                  }}
+                >
+                  {note}
+                </pre>
+                <div
+                  className="mt-4 flex flex-wrap items-center gap-2 text-xs"
+                  style={{ color: C.brownSoft }}
+                >
+                  <span
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full"
+                    style={{ background: C.oliveSoft, color: '#3d4a2e', fontWeight: 600 }}
+                  >
+                    <Check className="w-3 h-3" strokeWidth={2.5} />
+                    {L.noteReady}
+                  </span>
+                  <span>{L.noteReview}</span>
+                </div>
+              </div>
+            ) : errorMsg && !isLoading ? (
+              /* ----- Error ----- */
+              <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
+                <div
+                  className="w-16 h-16 rounded-3xl flex items-center justify-center mb-6"
+                  style={{ background: ERROR_BG }}
+                >
+                  <X className="w-7 h-7" style={{ color: ERROR_FG }} strokeWidth={2} />
+                </div>
+                <h3 className="mb-2 text-xl" style={{ fontWeight: 700, color: C.brown }}>
+                  {es ? 'No se pudo generar' : 'Could not generate'}
+                </h3>
+                <p className="text-sm max-w-xs" style={{ color: C.brownSoft }}>
+                  {errorMsg}
+                </p>
+              </div>
+            ) : chat.length === 0 && !isLoading ? (
+              /* ----- Estado vacio ----- */
               <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
                 <div
                   className="w-16 h-16 rounded-3xl flex items-center justify-center mb-6"
@@ -436,74 +508,94 @@ export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
                   {L.breathe}
                 </div>
               </div>
-            )}
+            ) : (
+              /* ----- Conversacion con Zenty ----- */
+              <div className="flex-1 flex flex-col">
+                <div
+                  className="space-y-3 overflow-y-auto"
+                  style={{ maxHeight: 440 }}
+                >
+                  {chat.slice(1).map((m, i) => (
+                    <div
+                      key={i}
+                      className={`flex ${
+                        m.role === 'assistant' ? 'justify-start' : 'justify-end'
+                      }`}
+                    >
+                      <div
+                        className="max-w-[88%] rounded-2xl px-4 py-3"
+                        style={{
+                          background: m.role === 'assistant' ? C.creamWarm : C.brown,
+                          color: m.role === 'assistant' ? C.brown : C.cream,
+                        }}
+                      >
+                        <div
+                          className="text-[10px] uppercase tracking-wider mb-1"
+                          style={{
+                            color: m.role === 'assistant' ? C.mustardDark : C.creamWarm,
+                            fontWeight: 700,
+                          }}
+                        >
+                          {m.role === 'assistant' ? 'Zenty' : es ? 'Tú' : 'You'}
+                        </div>
+                        <div className="text-sm whitespace-pre-wrap leading-relaxed">
+                          {m.content}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
 
-            {isGenerating && (
-              <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-                <div className="relative mb-5">
-                  <div
-                    className="w-16 h-16 rounded-3xl flex items-center justify-center"
-                    style={{ background: C.creamSoft }}
-                  >
-                    <Sparkles className="w-7 h-7 animate-pulse" style={{ color: C.mustardDark }} />
+                  {isLoading && (
+                    <div className="flex justify-start">
+                      <div
+                        className="rounded-2xl px-4 py-3 flex items-center gap-2"
+                        style={{ background: C.creamWarm }}
+                      >
+                        <div
+                          className="w-4 h-4 border-2 rounded-full animate-spin"
+                          style={{
+                            borderColor: C.mustardDark,
+                            borderTopColor: 'transparent',
+                          }}
+                        ></div>
+                        <span className="text-sm" style={{ color: C.brownSoft }}>
+                          {es ? 'Zenty está pensando...' : 'Zenty is thinking...'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {awaitingAnswer && (
+                  <div className="mt-4 flex gap-2 items-end">
+                    <textarea
+                      value={answerText}
+                      onChange={(e) => setAnswerText(e.target.value)}
+                      placeholder={
+                        es ? 'Escribe tu respuesta a Zenty...' : 'Type your answer to Zenty...'
+                      }
+                      rows={2}
+                      className="flex-1 px-4 py-3 rounded-2xl focus:outline-none transition-all resize-none text-sm leading-relaxed"
+                      style={{
+                        background: C.cream,
+                        border: `1.5px solid ${C.creamWarm}`,
+                        color: C.brown,
+                        fontFamily: "'DM Sans', sans-serif",
+                      }}
+                      onFocus={(e) => (e.target.style.borderColor = C.mustard)}
+                      onBlur={(e) => (e.target.style.borderColor = C.creamWarm)}
+                    />
+                    <button
+                      onClick={handleAnswer}
+                      disabled={!answerText.trim()}
+                      className="rounded-2xl p-3.5 transition-all hover:scale-[1.03] disabled:opacity-40 disabled:cursor-not-allowed"
+                      style={{ background: C.brown, color: C.cream }}
+                      aria-label={es ? 'Enviar' : 'Send'}
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
                   </div>
-                  <div
-                    className="absolute inset-0 rounded-3xl border-2 animate-spin"
-                    style={{ borderColor: C.mustard, borderTopColor: 'transparent' }}
-                  ></div>
-                </div>
-                <h3 className="mb-2 text-xl" style={{ fontWeight: 700, color: C.brown }}>
-                  {L.draftingTitle}
-                </h3>
-                <p className="text-sm" style={{ color: C.brownSoft }}>
-                  {L.draftingDesc}
-                </p>
-              </div>
-            )}
-
-            {errorMsg && !isGenerating && (
-              <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
-                <div
-                  className="w-16 h-16 rounded-3xl flex items-center justify-center mb-6"
-                  style={{ background: ERROR_BG }}
-                >
-                  <X className="w-7 h-7" style={{ color: ERROR_FG }} strokeWidth={2} />
-                </div>
-                <h3 className="mb-2 text-xl" style={{ fontWeight: 700, color: C.brown }}>
-                  {lang === 'es' ? 'No se pudo generar' : 'Could not generate'}
-                </h3>
-                <p className="text-sm max-w-xs" style={{ color: C.brownSoft }}>
-                  {errorMsg}
-                </p>
-              </div>
-            )}
-
-            {generatedNote && !isGenerating && (
-              <div className="flex-1">
-                <pre
-                  className="whitespace-pre-wrap text-sm leading-relaxed p-5 rounded-2xl"
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    background: C.cream,
-                    color: C.brown,
-                    border: `1px solid ${C.creamWarm}`,
-                  }}
-                >
-                  {generatedNote}
-                </pre>
-                <div
-                  className="mt-4 flex flex-wrap items-center gap-2 text-xs"
-                  style={{ color: C.brownSoft }}
-                >
-                  <span
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full"
-                    style={{ background: C.oliveSoft, color: '#3d4a2e', fontWeight: 600 }}
-                  >
-                    <Check className="w-3 h-3" strokeWidth={2.5} />
-                    {L.noteReady}
-                  </span>
-                  <span>{L.noteReview}</span>
-                </div>
+                )}
               </div>
             )}
           </div>

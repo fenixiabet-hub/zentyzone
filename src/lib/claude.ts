@@ -1,34 +1,43 @@
 /**
- * Zentyzone — Cliente de Claude (lado del NAVEGADOR)
+ * Zentyzone — Cliente de Zenty (lado del NAVEGADOR)
  * ------------------------------------------------------------
- * Este archivo SI corre en el navegador, por eso NO contiene
- * ninguna clave secreta. Su unico trabajo es pedirle la nota a
- * la funcion serverless /api/generate-note, que es la que de
- * verdad habla con Claude.
+ * Corre en el navegador, por eso NO contiene ninguna clave secreta.
+ * Le envia la conversacion a la funcion serverless /api/generate-note
+ * y devuelve la respuesta de Zenty: una PREGUNTA o la NOTA final.
  * ------------------------------------------------------------
  */
 import type { NoteType, Language } from '../prompts/zenty-system-prompt';
 
 export type { NoteType, Language };
 
-/** Datos que necesita Zenty para generar una nota. */
-export interface GenerateNoteParams {
-  /** El texto crudo que escribio el RBT/BCBA sobre la sesion. */
-  inputText: string;
+/** Un mensaje de la conversacion con Zenty. */
+export interface ZentyMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+/** La respuesta de Zenty: o una pregunta, o la nota final. */
+export interface ZentyReply {
+  /** 'question' = Zenty necesita mas datos. 'note' = nota lista. */
+  type: 'question' | 'note';
+  /** El texto de la pregunta, o el contenido de la nota. */
+  content: string;
+}
+
+export interface SendToZentyParams {
+  /** El historial completo de la conversacion. */
+  messages: ZentyMessage[];
   /** El tipo de nota: 'rbt_daily' | 'soap' | 'bcba_progress'. */
   noteType: NoteType;
-  /** El idioma de la nota: 'es' | 'en'. */
+  /** El idioma del profesional: 'es' | 'en'. */
   language: Language;
 }
 
 /**
- * Pide a Zenty que convierta el texto crudo en una nota clinica.
- * Devuelve el texto de la nota generada.
+ * Envia la conversacion a Zenty y devuelve su respuesta.
  * Lanza un Error con un mensaje claro si algo falla.
  */
-export async function generateNote(
-  params: GenerateNoteParams,
-): Promise<string> {
+export async function sendToZenty(params: SendToZentyParams): Promise<ZentyReply> {
   let response: Response;
   try {
     response = await fetch('/api/generate-note', {
@@ -42,7 +51,6 @@ export async function generateNote(
     );
   }
 
-  // Intentar leer la respuesta como JSON (puede venir vacia si hay error grave).
   const data: unknown = await response.json().catch(() => null);
 
   if (!response.ok) {
@@ -59,11 +67,17 @@ export async function generateNote(
   if (
     !data ||
     typeof data !== 'object' ||
-    !('note' in data) ||
-    typeof (data as { note: unknown }).note !== 'string'
+    !('type' in data) ||
+    !('content' in data) ||
+    ((data as { type: unknown }).type !== 'question' &&
+      (data as { type: unknown }).type !== 'note') ||
+    typeof (data as { content: unknown }).content !== 'string'
   ) {
     throw new Error('La respuesta del servidor no tiene el formato esperado.');
   }
 
-  return (data as { note: string }).note;
+  return {
+    type: (data as { type: 'question' | 'note' }).type,
+    content: (data as { content: string }).content,
+  };
 }
