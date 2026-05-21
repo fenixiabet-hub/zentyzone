@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+/* ===========================================================
+   Paleta de colores Zentyzone — mostaza + crema
+   -----------------------------------------------------------
+   Cada color se define dos veces: en camelCase (creamSoft) y
+   en kebab-case (cream-soft), para que cualquiera de las dos
+   formas funcione al escribir clases (ej: bg-creamSoft o
+   bg-cream-soft).
+   =========================================================== */
+@theme {
+  --color-cream: #fbf7ee;
+  --color-creamSoft: #f5efe0;
+  --color-cream-soft: #f5efe0;
+  --color-creamWarm: #ede4cd;
+  --color-cream-warm: #ede4cd;
+
+  --color-mustard: #d4a544;
+  --color-mustardSoft: #e8c478;
+  --color-mustard-soft: #e8c478;
+  --color-mustardDark: #8a6420;
+  --color-mustard-dark: #8a6420;
+
+  --color-olive: #7d8560;
+  --color-oliveSoft: #a5ab8a;
+  --color-olive-soft: #a5ab8a;
+
+  --color-brown: #3d342a;
+  --color-brownSoft: #6b5d4f;
+  --color-brown-soft: #6b5d4f;
+  --color-brownLight: #9d8f7e;
+  --color-brown-light: #9d8f7e;
+}
+
+/* Reset mínimo */
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100vh;
+}
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
