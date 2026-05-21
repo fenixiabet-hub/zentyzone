@@ -24,10 +24,10 @@ import {
 // ============================================================
 // CONFIGURACION
 // ------------------------------------------------------------
-// Modelo de Claude que usa Zenty. El nombre del modelo cambia con
-// el tiempo; se confirmara con la documentacion oficial de Anthropic
-// antes de la primera prueba en vivo.
-const CLAUDE_MODEL = 'claude-sonnet-4-5';
+// Modelo de Claude que usa Zenty. Verificado en la documentacion
+// oficial de Anthropic (mayo 2026): Claude Sonnet 4.6 es el mejor
+// equilibrio entre velocidad, calidad y costo.
+const CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 // Maximo de tokens (longitud) de la nota generada.
 const MAX_TOKENS = 4096;
