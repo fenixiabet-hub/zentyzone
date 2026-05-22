@@ -1,0 +1,242 @@
+/**
+ * Zentyzone — Traducciones del menú de navegación y páginas internas
+ */
+import type { Lang } from './index';
+
+const menuEs = {
+  // Sidebar — secciones
+  sectionMain: '',
+  sectionMySpace: 'Mi Espacio',
+  sectionHelp: 'Ayuda',
+  sectionAccount: 'Cuenta',
+
+  // Sidebar — opciones de navegación
+  navHome: 'Inicio',
+  navNewNote: 'Nueva Nota',
+  navHistory: 'Historial',
+  navTemplates: 'Plantillas',
+  navClients: 'Mis Clientes',
+  navGlossary: 'Glosario ABA',
+  navTutorial: 'Tutorial',
+  navFaq: 'FAQ',
+  navAccount: 'Mi Cuenta',
+  navBilling: 'Plan y Pagos',
+
+  // Sidebar — footer
+  planFree: 'Plan Free',
+  planPro: 'Plan Pro',
+  notesUsed: 'notas',
+  notesOf: 'de',
+  logout: 'Cerrar Sesión',
+
+  // Home
+  homeGreeting: 'Hola',
+  homeSubtitle: '¿Listo para tu próxima nota?',
+  homeStatsNotes: 'Notas este mes',
+  homeStatsPlan: 'Plan actual',
+  homeStatsLeft: 'Notas restantes',
+  homeStatsSaved: 'Minutos ahorrados',
+  homeCtaBtn: 'Generar Nueva Nota',
+  homeRecentTitle: 'Últimas notas',
+  homeRecentEmpty: 'Aún no has generado notas.',
+  homeViewAll: 'Ver historial completo',
+
+  // History
+  historyTitle: 'Historial de Notas',
+  historySearch: 'Buscar por cliente o contenido…',
+  historyFilterType: 'Tipo de nota',
+  historyFilterDate: 'Fecha',
+  historyFilterAll: 'Todas',
+  historyFilterThisMonth: 'Este mes',
+  historyFilterLastMonth: 'Mes pasado',
+  historyTypeRbt: 'RBT Daily',
+  historyTypeSoap: 'SOAP',
+  historyTypeBcba: 'BCBA Progress',
+  historyActionView: 'Ver',
+  historyActionCopy: 'Copiar',
+  historyActionDelete: 'Borrar',
+  historyEmpty: 'Aún no has generado notas. Empieza con tu primera',
+  historyDeleteConfirm: '¿Borrar esta nota? Esta acción no se puede deshacer.',
+  historyCopied: '¡Copiado!',
+
+  // Templates
+  templatesTitle: 'Plantillas',
+  templatesNew: '+ Nueva Plantilla',
+  templatesEmpty:
+    'Las plantillas te ahorran tiempo. Crea una para cada cliente recurrente y solo modifica los detalles del día.',
+  templatesUse: 'Usar plantilla',
+  templatesEdit: 'Editar',
+  templatesDelete: 'Borrar',
+  templatesClient: 'Cliente',
+  templatesPrograms: 'Programas',
+  templatesName: 'Nombre de la plantilla',
+
+  // Clients
+  clientsTitle: 'Mis Clientes',
+  clientsNew: '+ Agregar Cliente',
+  clientsEmpty: 'Aún no has agregado clientes. Agrega uno para llevar registro de sus sesiones.',
+  clientsInitials: 'Iniciales',
+  clientsPrograms: 'Programas activos',
+  clientsNotes: 'Notas generadas',
+  clientsLastSession: 'Última sesión',
+  clientsHipaaHint: 'Solo iniciales (máx. 4 caracteres). Nunca nombres completos.',
+
+  // Glossary
+  glossaryTitle: 'Glosario ABA',
+  glossarySearch: 'Buscar término…',
+  glossaryTerm: 'Término',
+  glossaryFull: 'Nombre completo',
+  glossaryDef: 'Definición',
+  glossaryExample: 'Ejemplo en nota',
+  glossaryEmpty: 'No se encontraron términos.',
+
+  // Tutorial
+  tutorialTitle: 'Cómo Usar Zenty',
+  tutorialSubtitle: 'Genera notas clínicas profesionales en 5 pasos simples.',
+  tutorialStep: 'Paso',
+  tutorialTipsTitle: 'Tips importantes',
+
+  // FAQ
+  faqTitle: 'Preguntas Frecuentes',
+  faqSubtitle: 'Todo lo que necesitas saber sobre Zenty.',
+
+  // Account
+  accountTitle: 'Mi Cuenta',
+  accountEmail: 'Email',
+  accountName: 'Nombre',
+  accountLanguage: 'Idioma de interfaz',
+  accountPassword: 'Cambiar contraseña',
+  accountPasswordBtn: 'Cambiar contraseña',
+  accountLogout: 'Cerrar Sesión',
+  accountSaved: '¡Cambios guardados!',
+  accountSave: 'Guardar cambios',
+
+  // Billing
+  billingTitle: 'Plan y Pagos',
+  billingCurrentPlan: 'Tu plan actual',
+  billingFreeDesc: 'Plan Free · 20 notas de por vida',
+  billingProDesc: 'Plan Pro · Ilimitado',
+  billingProPrice: '$29/mes',
+  billingUsed: 'Has usado',
+  billingUpgradeTitle: 'Actualiza a Pro',
+  billingUpgradeBtn: 'Actualizar a Pro',
+  billingUpgradeDesc: 'Notas ilimitadas, prioridad de respuesta y acceso a todas las funciones.',
+  billingPayments: 'Historial de pagos',
+  billingNoPayments: 'No hay pagos registrados aún.',
+  billingComingSoon: 'Próximamente vía Stripe',
+  billingRenews: 'Próxima renovación',
+};
+
+const menuEn: typeof menuEs = {
+  sectionMain: '',
+  sectionMySpace: 'My Space',
+  sectionHelp: 'Help',
+  sectionAccount: 'Account',
+
+  navHome: 'Home',
+  navNewNote: 'New Note',
+  navHistory: 'History',
+  navTemplates: 'Templates',
+  navClients: 'My Clients',
+  navGlossary: 'ABA Glossary',
+  navTutorial: 'Tutorial',
+  navFaq: 'FAQ',
+  navAccount: 'My Account',
+  navBilling: 'Plan & Billing',
+
+  planFree: 'Free Plan',
+  planPro: 'Pro Plan',
+  notesUsed: 'notes',
+  notesOf: 'of',
+  logout: 'Log Out',
+
+  homeGreeting: 'Hi',
+  homeSubtitle: 'Ready for your next note?',
+  homeStatsNotes: 'Notes this month',
+  homeStatsPlan: 'Current plan',
+  homeStatsLeft: 'Notes remaining',
+  homeStatsSaved: 'Minutes saved',
+  homeCtaBtn: 'Generate New Note',
+  homeRecentTitle: 'Recent notes',
+  homeRecentEmpty: "You haven't generated any notes yet.",
+  homeViewAll: 'View full history',
+
+  historyTitle: 'Notes History',
+  historySearch: 'Search by client or content…',
+  historyFilterType: 'Note type',
+  historyFilterDate: 'Date',
+  historyFilterAll: 'All',
+  historyFilterThisMonth: 'This month',
+  historyFilterLastMonth: 'Last month',
+  historyTypeRbt: 'RBT Daily',
+  historyTypeSoap: 'SOAP',
+  historyTypeBcba: 'BCBA Progress',
+  historyActionView: 'View',
+  historyActionCopy: 'Copy',
+  historyActionDelete: 'Delete',
+  historyEmpty: "You haven't generated any notes yet. Start with your first",
+  historyDeleteConfirm: 'Delete this note? This action cannot be undone.',
+  historyCopied: 'Copied!',
+
+  templatesTitle: 'Templates',
+  templatesNew: '+ New Template',
+  templatesEmpty:
+    'Templates save you time. Create one for each recurring client and only change the details each day.',
+  templatesUse: 'Use template',
+  templatesEdit: 'Edit',
+  templatesDelete: 'Delete',
+  templatesClient: 'Client',
+  templatesPrograms: 'Programs',
+  templatesName: 'Template name',
+
+  clientsTitle: 'My Clients',
+  clientsNew: '+ Add Client',
+  clientsEmpty: "You haven't added any clients yet. Add one to track their sessions.",
+  clientsInitials: 'Initials',
+  clientsPrograms: 'Active programs',
+  clientsNotes: 'Notes generated',
+  clientsLastSession: 'Last session',
+  clientsHipaaHint: 'Initials only (max 4 chars). Never full names.',
+
+  glossaryTitle: 'ABA Glossary',
+  glossarySearch: 'Search term…',
+  glossaryTerm: 'Term',
+  glossaryFull: 'Full name',
+  glossaryDef: 'Definition',
+  glossaryExample: 'Example in note',
+  glossaryEmpty: 'No terms found.',
+
+  tutorialTitle: 'How to Use Zenty',
+  tutorialSubtitle: 'Generate professional clinical notes in 5 simple steps.',
+  tutorialStep: 'Step',
+  tutorialTipsTitle: 'Important tips',
+
+  faqTitle: 'Frequently Asked Questions',
+  faqSubtitle: 'Everything you need to know about Zenty.',
+
+  accountTitle: 'My Account',
+  accountEmail: 'Email',
+  accountName: 'Name',
+  accountLanguage: 'Interface language',
+  accountPassword: 'Change password',
+  accountPasswordBtn: 'Change password',
+  accountLogout: 'Log Out',
+  accountSaved: 'Changes saved!',
+  accountSave: 'Save changes',
+
+  billingTitle: 'Plan & Billing',
+  billingCurrentPlan: 'Your current plan',
+  billingFreeDesc: 'Free Plan · 20 lifetime notes',
+  billingProDesc: 'Pro Plan · Unlimited',
+  billingProPrice: '$29/mo',
+  billingUsed: "You've used",
+  billingUpgradeTitle: 'Upgrade to Pro',
+  billingUpgradeBtn: 'Upgrade to Pro',
+  billingUpgradeDesc: 'Unlimited notes, priority response, and access to all features.',
+  billingPayments: 'Payment history',
+  billingNoPayments: 'No payments recorded yet.',
+  billingComingSoon: 'Coming soon via Stripe',
+  billingRenews: 'Next renewal',
+};
+
+export const tm: Record<Lang, typeof menuEs> = { es: menuEs, en: menuEn };
