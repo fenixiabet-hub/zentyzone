@@ -53,7 +53,7 @@ export function Home({ lang, userId, userName }: HomeProps) {
 
     Promise.all([
       supabase.from('profiles')
-        .select('plan, notes_generated_count')
+        .select('subscription_status, notes_generated_count')
         .eq('id', userId)
         .single(),
       supabase.from('notes')
@@ -68,7 +68,7 @@ export function Home({ lang, userId, userName }: HomeProps) {
     ]).then(([profileRes, notesRes, countRes]) => {
       if (!active) return;
       if (profileRes.data) {
-        setPlan(profileRes.data.plan === 'pro' ? 'pro' : 'free');
+        setPlan(profileRes.data.subscription_status === 'pro' ? 'pro' : 'free');
         setNotesCount(profileRes.data.notes_generated_count ?? 0);
       }
       if (notesRes.data) setRecentNotes(notesRes.data);

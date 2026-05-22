@@ -32,8 +32,14 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 export interface Profile {
   id: string;
   email: string | null;
-  plan: 'free' | 'pro';
+  subscription_status: 'free' | 'pro';
   notes_generated_count: number;
+  copies_this_month: number;
+  generations_this_month: number;
+  last_reset_date: string | null;
+  active_session_id: string | null;
+  last_login_at: string | null;
+  pro_renewal_date: string | null;
   created_at: string;
 }
 

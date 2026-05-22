@@ -97,12 +97,12 @@ export default function App() {
     if (!session?.user.id) return;
     supabase
       .from('profiles')
-      .select('plan, notes_generated_count')
+      .select('subscription_status, notes_generated_count')
       .eq('id', session.user.id)
       .single()
       .then(({ data }) => {
         if (data) {
-          setPlan(data.plan === 'pro' ? 'pro' : 'free');
+          setPlan(data.subscription_status === 'pro' ? 'pro' : 'free');
           setNotesCount(
             typeof data.notes_generated_count === 'number'
               ? data.notes_generated_count

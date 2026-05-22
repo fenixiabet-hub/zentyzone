@@ -66,13 +66,13 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
     let active = true;
     supabase
       .from('profiles')
-      .select('plan, notes_generated_count')
+      .select('subscription_status, notes_generated_count')
       .eq('id', userId)
       .single()
       .then(({ data, error }) => {
         if (!active) return;
         if (data && !error) {
-          setPlan(data.plan === 'pro' ? 'pro' : 'free');
+          setPlan(data.subscription_status === 'pro' ? 'pro' : 'free');
           setNotesCount(
             typeof data.notes_generated_count === 'number'
               ? data.notes_generated_count

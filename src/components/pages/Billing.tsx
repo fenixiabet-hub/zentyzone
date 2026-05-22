@@ -29,12 +29,12 @@ export function Billing({ lang, userId }: BillingProps) {
     if (!userId) return;
     supabase
       .from('profiles')
-      .select('plan, notes_generated_count')
+      .select('subscription_status, notes_generated_count')
       .eq('id', userId)
       .single()
       .then(({ data }) => {
         if (data) {
-          setPlan(data.plan === 'pro' ? 'pro' : 'free');
+          setPlan(data.subscription_status === 'pro' ? 'pro' : 'free');
           setNotesCount(data.notes_generated_count ?? 0);
         }
         setLoading(false);
