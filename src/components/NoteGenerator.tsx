@@ -30,14 +30,15 @@ const ERROR_FG = '#b4412e';
 interface NoteGeneratorProps {
   lang: Lang;
   userId: string;
+  initialSessionInfo?: string;
 }
 
-export function NoteGenerator({ lang, userId }: NoteGeneratorProps) {
+export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGeneratorProps) {
   const L = t[lang];
   const es = lang === 'es';
 
   // --- Formulario de la sesion ---
-  const [sessionInfo, setSessionInfo] = useState('');
+  const [sessionInfo, setSessionInfo] = useState(initialSessionInfo);
   const [clientInitials, setClientInitials] = useState('');
   const [sessionDate, setSessionDate] = useState(
     new Date().toISOString().split('T')[0],

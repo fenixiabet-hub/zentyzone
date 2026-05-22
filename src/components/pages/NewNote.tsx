@@ -2,9 +2,11 @@
  * NewNote — Generador de notas dentro del nuevo layout
  * ------------------------------------------------------------
  * Añade un encabezado de página limpio y renderiza el
- * NoteGenerator existente sin modificarlo.
+ * NoteGenerator existente. Lee templateContent del router state
+ * para pre-llenar el textarea cuando viene de una plantilla.
  * ------------------------------------------------------------
  */
+import { useLocation } from 'react-router-dom';
 import { Sparkles } from 'lucide-react';
 import { NoteGenerator } from '../NoteGenerator';
 import { C } from '../../theme';
@@ -17,6 +19,8 @@ interface NewNoteProps {
 
 export function NewNote({ lang, userId }: NewNoteProps) {
   const es = lang === 'es';
+  const location = useLocation();
+  const templateContent: string = (location.state as { templateContent?: string } | null)?.templateContent ?? '';
 
   const dateStr = new Date().toLocaleDateString(es ? 'es-ES' : 'en-US', {
     weekday: 'long',
@@ -46,10 +50,15 @@ export function NewNote({ lang, userId }: NewNoteProps) {
             ? 'Escribe tus ideas y Zenty las convierte en una nota clínica profesional.'
             : 'Write your thoughts and Zenty turns them into a professional clinical note.'}
         </p>
+        {templateContent && (
+          <p className="mt-1 text-xs font-semibold" style={{ color: C.mustardDark }}>
+            {es ? '✦ Plantilla cargada — ajusta los detalles del día' : '✦ Template loaded — adjust today\'s details'}
+          </p>
+        )}
       </div>
 
-      {/* ── Generador (sin cambios) ── */}
-      <NoteGenerator lang={lang} userId={userId} />
+      {/* ── Generador ── */}
+      <NoteGenerator lang={lang} userId={userId} initialSessionInfo={templateContent} />
     </div>
   );
 }
