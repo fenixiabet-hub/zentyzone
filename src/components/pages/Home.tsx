@@ -10,7 +10,7 @@ import { C } from '../../theme';
 import { tm } from '../../translations/menu';
 import type { Lang } from '../../translations';
 
-const COPY_LIMIT = 10; // copias/mes — limite visible del plan free
+const COPY_LIMIT = 5; // copias/mes — plan free / canceled
 
 interface HomeProps {
   lang: Lang;

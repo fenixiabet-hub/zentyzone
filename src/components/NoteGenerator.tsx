@@ -6,7 +6,7 @@
  * nota borrosa pendiente de confirmación.
  *
  * Limites plan free:
- *   - 10 copias/mes (visible)     — gestionadas en /api/confirm-copy
+ *   - 5/10/25 copias/mes (visible) — gestionadas en /api/confirm-copy
  *   - 50 generaciones/mes (silent) — gestionadas en /api/generate-note
  *   - 3 regeneraciones por nota antes de confirmar
  *
@@ -25,7 +25,7 @@ import { LimitReachedScreen } from './LimitReachedScreen';
 
 // ── Constantes ───────────────────────────────────────────────
 const NOTE_TYPE: NoteType = 'rbt_daily';
-const COPY_LIMIT  = 10;  // copias/mes — visible al usuario
+const COPY_LIMIT  = 5;   // copias/mes — plan free / canceled
 const REGEN_LIMIT = 3;   // regeneraciones por nota
 
 // ── Colores de error ─────────────────────────────────────────

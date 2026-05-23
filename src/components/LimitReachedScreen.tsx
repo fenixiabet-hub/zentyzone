@@ -1,8 +1,8 @@
 /**
  * LimitReachedScreen — Pantalla de limite mensual de copias
  * ----------------------------------------------------------
- * Se muestra cuando el usuario del plan free ha usado sus 10
- * copias confirmadas del mes. Indica la fecha de reset y
+ * Se muestra cuando el usuario ha alcanzado el limite de copias
+ * confirmadas del mes segun su plan. Indica la fecha de reset y
  * ofrece el upgrade a Pro.
  *
  * (Paso 5: version basica. Paso 6: se enriquece con CTA de upgrade.)
@@ -53,14 +53,14 @@ export function LimitReachedScreen({ lang, nextReset, onUpgrade }: LimitReachedS
         className="text-xl font-bold mb-2"
         style={{ color: C.brown, letterSpacing: '-0.01em' }}
       >
-        {es ? '10 notas usadas este mes' : '10 notes used this month'}
+        {es ? 'Límite mensual alcanzado' : 'Monthly limit reached'}
       </h3>
 
       {/* Descripcion */}
       <p className="text-sm mb-2 max-w-xs" style={{ color: C.brownSoft }}>
         {es
-          ? 'Tu plan gratuito incluye 10 notas confirmadas por mes.'
-          : 'Your free plan includes 10 confirmed notes per month.'}
+          ? 'Has alcanzado el límite de notas confirmadas de tu plan este mes.'
+          : 'You have reached your plan\'s confirmed notes limit for this month.'}
       </p>
 
       {/* Fecha de reset */}
