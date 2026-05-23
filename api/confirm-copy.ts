@@ -15,8 +15,10 @@
  */
 import { createClient } from '@supabase/supabase-js';
 
-/** Limite visible de copias por mes para el plan free. */
+/** Limite visible de copias por mes para el plan free / trial. */
 const COPY_LIMIT = 10;
+/** Limite visible de copias por mes para el plan Plus. */
+const PLUS_COPY_LIMIT = 40;
 
 type NoteType = 'rbt_daily' | 'soap' | 'bcba_progress';
 
@@ -91,18 +93,33 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Sesion invalida. Vuelve a iniciar sesion.' }, 401);
   }
 
-  const isPro = profile.subscription_status === 'pro';
+  const status     = profile.subscription_status ?? 'free';
+  const isPro      = status === 'pro';
+  const isPlus     = status === 'plus';
+  const isPastDue  = status === 'past_due';
+
+  // Bloquear usuarios con pago fallido
+  if (isPastDue) {
+    return jsonResponse(
+      { error: 'Hay un problema con tu metodo de pago. Ve a Plan y Pagos para actualizarlo.' },
+      402,
+    );
+  }
 
   // ── 7. Determinar si corresponde reset mensual ───────────────────────
   const today = new Date().toISOString().slice(0, 10);          // 'YYYY-MM-DD'
   const currentMonth = today.slice(0, 7);                        // 'YYYY-MM'
   const lastResetMonth = (profile.last_reset_date ?? '').slice(0, 7);
-  const needsReset = !isPro && currentMonth !== lastResetMonth;
+  const isPaid   = isPro || isPlus;
+  const needsReset = !isPaid && currentMonth !== lastResetMonth;
 
   let copiesThisMonth = needsReset ? 0 : (profile.copies_this_month ?? 0);
 
-  // ── 8. Verificar cuota (solo plan free) ──────────────────────────────
-  if (!isPro && copiesThisMonth >= COPY_LIMIT) {
+  // Limite segun plan
+  const effectiveCopyLimit = isPro ? Infinity : isPlus ? PLUS_COPY_LIMIT : COPY_LIMIT;
+
+  // ── 8. Verificar cuota ────────────────────────────────────────────────
+  if (!isPro && copiesThisMonth >= effectiveCopyLimit) {
     // Calcular fecha del proximo reset (dia 1 del mes siguiente)
     const now = new Date();
     const nextReset = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
@@ -111,7 +128,7 @@ export async function POST(request: Request): Promise<Response> {
       {
         limitReached: true,
         copiesUsed: copiesThisMonth,
-        copiesLimit: COPY_LIMIT,
+        copiesLimit: effectiveCopyLimit === Infinity ? null : effectiveCopyLimit,
         nextReset: nextReset.toISOString().slice(0, 10), // 'YYYY-MM-DD'
       },
       200, // 200: no es un error del servidor, es logica de negocio
@@ -121,7 +138,7 @@ export async function POST(request: Request): Promise<Response> {
   // ── 9. Incrementar copies_this_month (y resetear si toca) ────────────
   const newCopiesCount = copiesThisMonth + 1;
   const updateData: Record<string, unknown> = {
-    copies_this_month: isPro ? copiesThisMonth : newCopiesCount,
+    copies_this_month: isPaid ? copiesThisMonth : newCopiesCount,
   };
   if (needsReset) {
     updateData.generations_this_month = 0;
@@ -152,8 +169,8 @@ export async function POST(request: Request): Promise<Response> {
   return jsonResponse(
     {
       success: true,
-      copiesUsed: isPro ? null : newCopiesCount,
-      copiesLimit: isPro ? null : COPY_LIMIT,
+      copiesUsed: isPaid ? null : newCopiesCount,
+      copiesLimit: isPaid ? null : (isPlus ? PLUS_COPY_LIMIT : COPY_LIMIT),
     },
     200,
   );

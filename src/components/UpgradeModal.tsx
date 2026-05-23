@@ -5,6 +5,7 @@
  * de notas. El pago real (Stripe) se conecta mas adelante.
  * ------------------------------------------------------------
  */
+import { useNavigate } from 'react-router-dom';
 import { Sparkles, X } from 'lucide-react';
 import { C } from '../theme';
 import type { Lang } from '../translations';
@@ -15,7 +16,8 @@ interface UpgradeModalProps {
 }
 
 export function UpgradeModal({ lang, onClose }: UpgradeModalProps) {
-  const es = lang === 'es';
+  const es       = lang === 'es';
+  const navigate = useNavigate();
 
   return (
     <div
@@ -79,17 +81,20 @@ export function UpgradeModal({ lang, onClose }: UpgradeModalProps) {
 
         <button
           type="button"
-          onClick={onClose}
+          onClick={() => { onClose(); navigate('/app/billing'); }}
           className="w-full py-3.5 rounded-2xl transition-all hover:shadow-lg hover:scale-[1.01]"
           style={{ background: C.brown, color: C.cream, fontWeight: 600 }}
         >
-          {es ? 'Entendido' : 'Got it'}
+          {es ? 'Ver planes — 5 días gratis' : 'See plans — 5 days free'}
         </button>
-        <p className="text-xs mt-3" style={{ color: C.brownLight }}>
-          {es
-            ? 'El pago con tarjeta estará disponible muy pronto.'
-            : 'Card payments will be available very soon.'}
-        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full py-2 text-sm"
+          style={{ color: C.brownLight }}
+        >
+          {es ? 'Ahora no' : 'Not now'}
+        </button>
       </div>
     </div>
   );

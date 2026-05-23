@@ -25,8 +25,10 @@ import { createClient } from '@supabase/supabase-js';
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 // Maximo de tokens: alto porque la nota viene en 2 idiomas.
 const MAX_TOKENS = 8000;
-// Limite silencioso de generaciones por mes (plan free).
+// Limite silencioso de generaciones por mes (plan free / trial).
 const SILENT_GEN_LIMIT = 50;
+// Limite silencioso de generaciones por mes (plan plus).
+const PLUS_GEN_LIMIT = 120;
 
 type NoteType = 'rbt_daily' | 'soap' | 'bcba_progress';
 type Language = 'es' | 'en';
@@ -219,7 +221,19 @@ export async function POST(request: Request): Promise<Response> {
       return jsonResponse({ error: 'Sesion invalida. Vuelve a iniciar sesion.' }, 401);
     }
 
-    isPro = profile.subscription_status === 'pro';
+    const status = profile.subscription_status ?? 'free';
+    isPro = status === 'pro';
+    const isPlus     = status === 'plus';
+    const isPastDue  = status === 'past_due';
+
+    // Bloquear usuarios con pago fallido
+    if (isPastDue) {
+      return jsonResponse(
+        { error: 'Hay un problema con tu metodo de pago. Ve a Plan y Pagos para actualizarlo.' },
+        402,
+      );
+    }
+
     generationsThisMonth = profile.generations_this_month ?? 0;
     notesGeneratedTotal = profile.notes_generated_count ?? 0;
 
@@ -231,8 +245,11 @@ export async function POST(request: Request): Promise<Response> {
 
       const effectiveGenerations = needsReset ? 0 : generationsThisMonth;
 
+      // Elegir limite segun plan
+      const genLimit = isPlus ? PLUS_GEN_LIMIT : SILENT_GEN_LIMIT;
+
       // Limite silencioso: no revelar el numero al usuario
-      if (effectiveGenerations >= SILENT_GEN_LIMIT) {
+      if (effectiveGenerations >= genLimit) {
         return jsonResponse(
           { error: 'No se pudo generar la nota. Intentalo de nuevo.' },
           500,

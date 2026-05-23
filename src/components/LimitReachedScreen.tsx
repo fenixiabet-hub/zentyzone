@@ -80,7 +80,7 @@ export function LimitReachedScreen({ lang, nextReset, onUpgrade }: LimitReachedS
           style={{ background: C.brown, color: C.cream }}
         >
           <Crown className="w-4 h-4" />
-          {es ? 'Actualizar a Pro — notas ilimitadas' : 'Upgrade to Pro — unlimited notes'}
+          {es ? 'Ver planes — 5 días gratis' : 'See plans — 5 days free'}
         </button>
       )}
     </div>

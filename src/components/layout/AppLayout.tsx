@@ -13,13 +13,15 @@ import { useSessionGuard } from '../../hooks/useSessionGuard';
 import { C } from '../../theme';
 import type { Lang } from '../../translations';
 
+export type PlanStatus = 'free' | 'trial' | 'plus' | 'pro' | 'past_due' | 'canceled';
+
 export interface AppLayoutProps {
   lang: Lang;
   setLang: (l: Lang) => void;
   userEmail: string;
   userName: string;
   userId: string;
-  plan: 'free' | 'pro';
+  plan: PlanStatus;
   notesCount: number;
   onLogout: () => void;
 }

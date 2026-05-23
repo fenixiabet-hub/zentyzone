@@ -1,78 +1,120 @@
 /**
  * Billing — Plan y Pagos
- * Plan actual + barra de uso + card de upgrade + "Próximamente Stripe"
+ * Soporta: free · trial · plus · pro · past_due · canceled
+ * Botones reales de Stripe Checkout con prueba de 5 días.
  */
 import { useState, useEffect } from 'react';
-import { Crown, Zap, Check, CreditCard, ArrowRight } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { Crown, Zap, Check, CreditCard, ArrowRight, AlertTriangle, Sparkles } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { C } from '../../theme';
 import { tm } from '../../translations/menu';
 import type { Lang } from '../../translations';
 
-const COPY_LIMIT = 10; // copias/mes — limite visible del plan free
+const COPY_LIMIT      = 10;
+const PLUS_COPY_LIMIT = 40;
 
 interface BillingProps {
   lang: Lang;
   userId: string;
 }
 
+interface Profile {
+  subscription_status: string;
+  copies_this_month: number;
+  notes_generated_count: number;
+  pro_renewal_date: string | null;
+  chosen_plan: string | null;
+  trial_ends_at: string | null;
+  subscription_current_period_end: string | null;
+  payment_failed: boolean;
+}
+
 export function Billing({ lang, userId }: BillingProps) {
-  const M = tm[lang];
+  const M  = tm[lang];
   const es = lang === 'es';
 
-  const [plan, setPlan]                       = useState<'free' | 'pro'>('free');
-  const [copiesThisMonth, setCopiesThisMonth] = useState(0);
-  const [notesTotal, setNotesTotal]           = useState(0);
-  const [proRenewalDate, setProRenewalDate]   = useState<string | null>(null);
-  const [loading, setLoading]                 = useState(true);
-  const [showComingSoon, setShowComingSoon] = useState(false);
+  const [profile, setProfile]             = useState<Profile | null>(null);
+  const [loading, setLoading]             = useState(true);
+  const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError]     = useState('');
+  const [searchParams]                    = useSearchParams();
+
+  const checkoutResult = searchParams.get('checkout'); // 'success' | 'canceled'
+  const checkoutPlan   = searchParams.get('plan');     // 'plus' | 'pro'
 
   useEffect(() => {
     if (!userId) return;
     supabase
       .from('profiles')
-      .select('subscription_status, copies_this_month, notes_generated_count, pro_renewal_date')
+      .select(
+        'subscription_status, copies_this_month, notes_generated_count, pro_renewal_date, chosen_plan, trial_ends_at, subscription_current_period_end, payment_failed',
+      )
       .eq('id', userId)
       .single()
       .then(({ data }) => {
-        if (data) {
-          setPlan(data.subscription_status === 'pro' ? 'pro' : 'free');
-          setCopiesThisMonth(data.copies_this_month ?? 0);
-          setNotesTotal(data.notes_generated_count ?? 0);
-          setProRenewalDate(data.pro_renewal_date ?? null);
-        }
+        if (data) setProfile(data as Profile);
         setLoading(false);
       });
   }, [userId]);
 
-  const copiesLeft = Math.max(0, COPY_LIMIT - copiesThisMonth);
-  const pct        = Math.min(100, (copiesThisMonth / COPY_LIMIT) * 100);
-
-  const barColor =
-    pct >= 90 ? '#d97706' :
-    pct >= 70 ? C.mustard :
-    C.mustardSoft;
-
-  // Fecha de proximo reset (1ro del mes siguiente)
-  const nextResetDate = (() => {
-    const now = new Date();
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-    return d.toLocaleDateString(es ? 'es-US' : 'en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
-  })();
-
-  // Formato fecha de renovacion Pro
-  const formatProRenewal = (dateStr: string | null) => {
-    if (!dateStr) return null;
+  // ── Checkout ────────────────────────────────────────────────────────────────
+  const startCheckout = async (plan: 'plus' | 'pro') => {
+    setCheckoutLoading(plan);
+    setCheckoutError('');
     try {
-      return new Date(dateStr + 'T00:00:00Z').toLocaleDateString(es ? 'es-US' : 'en-US', {
-        month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setCheckoutError(es ? 'Sesión no válida. Vuelve a entrar.' : 'Invalid session. Please sign in again.');
+        return;
+      }
+      const res  = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ plan }),
       });
-    } catch { return null; }
+      const json = await res.json();
+      if (json.url) {
+        window.location.href = json.url;
+      } else {
+        setCheckoutError(
+          json.error ||
+          (es ? 'Error al procesar. Inténtalo de nuevo.' : 'Error processing. Please try again.'),
+        );
+      }
+    } catch {
+      setCheckoutError(
+        es ? 'No se pudo conectar. Inténtalo de nuevo.' : 'Could not connect. Please try again.',
+      );
+    } finally {
+      setCheckoutLoading(null);
+    }
   };
 
-  const proFeatures = es
-    ? ['Notas ilimitadas de por vida', 'Prioridad de respuesta de Zenty', 'Acceso anticipado a nuevas funciones', 'Soporte prioritario']
-    : ['Unlimited lifetime notes', 'Priority Zenty response', 'Early access to new features', 'Priority support'];
+  // ── Helpers ────────────────────────────────────────────────────────────────
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return '';
+    try {
+      return new Date(dateStr).toLocaleDateString(es ? 'es-US' : 'en-US', {
+        month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+      });
+    } catch { return ''; }
+  };
+
+  const daysUntil = (dateStr: string | null): number => {
+    if (!dateStr) return 0;
+    const diff = new Date(dateStr).getTime() - Date.now();
+    return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+  };
+
+  const nextResetDate = (() => {
+    const now = new Date();
+    const d   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+    return d.toLocaleDateString(es ? 'es-US' : 'en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+  })();
 
   if (loading) {
     return (
@@ -83,166 +125,331 @@ export function Billing({ lang, userId }: BillingProps) {
     );
   }
 
+  const status          = profile?.subscription_status ?? 'free';
+  const copies          = profile?.copies_this_month   ?? 0;
+  const notesTotal      = profile?.notes_generated_count ?? 0;
+  const trialEndsAt     = profile?.trial_ends_at        ?? null;
+  const periodEnd       = profile?.subscription_current_period_end ?? null;
+  const chosenPlan      = profile?.chosen_plan          ?? null;
+  const trialDaysLeft   = daysUntil(trialEndsAt);
+
+  const copyLimit       = status === 'plus' ? PLUS_COPY_LIMIT : COPY_LIMIT;
+  const copiesLeft      = Math.max(0, copyLimit - copies);
+  const pct             = status === 'free' || status === 'canceled' || status === 'trial'
+    ? Math.min(100, (copies / COPY_LIMIT) * 100)
+    : Math.min(100, (copies / PLUS_COPY_LIMIT) * 100);
+
+  const barColor = pct >= 90 ? '#d97706' : pct >= 70 ? C.mustard : C.mustardSoft;
+
+  // ── Plan features lists ─────────────────────────────────────────────────────
+  const plusFeatures = es
+    ? ['40 notas confirmadas / mes', 'Soporte prioritario', 'Exportar notas', 'Acceso anticipado a nuevas funciones']
+    : ['40 confirmed notes / month', 'Priority support', 'Export notes', 'Early access to new features'];
+
+  const proFeatures = es
+    ? ['Notas ilimitadas', 'Mayor capacidad de IA', 'Soporte prioritario', 'Exportar notas', 'Acceso anticipado a nuevas funciones']
+    : ['Unlimited notes', 'Higher AI capacity', 'Priority support', 'Export notes', 'Early access to new features'];
+
   return (
-    <>
-      <div className="max-w-xl space-y-6">
-        {/* Header */}
-        <h1
-          className="text-2xl lg:text-3xl tracking-tight font-bold"
-          style={{ color: C.brown, letterSpacing: '-0.02em' }}
-        >
-          {M.billingTitle}
-        </h1>
+    <div className="max-w-xl space-y-6">
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <h1 className="text-2xl lg:text-3xl tracking-tight font-bold"
+        style={{ color: C.brown, letterSpacing: '-0.02em' }}>
+        {M.billingTitle}
+      </h1>
 
-        {/* Plan actual */}
-        <div
-          className="rounded-[2rem] p-6"
-          style={{ background: 'white', boxShadow: `0 4px 20px ${C.mustardDark}10` }}
-        >
-          <p className="text-xs uppercase tracking-wider font-semibold mb-5" style={{ color: C.brownLight }}>
-            {M.billingCurrentPlan}
+      {/* ── Banner: resultado del checkout ─────────────────────────────────── */}
+      {checkoutResult === 'success' && (
+        <div className="rounded-2xl p-4 flex items-center gap-3"
+          style={{ background: '#f0fdf4', border: '1.5px solid #86efac' }}>
+          <Sparkles className="w-5 h-5 shrink-0" style={{ color: '#16a34a' }} />
+          <p className="text-sm font-semibold" style={{ color: '#15803d' }}>
+            {es
+              ? `¡Listo! Tu prueba gratuita de Plan ${checkoutPlan === 'pro' ? 'Pro' : 'Plus'} está activa. Tienes 5 días sin cobro.`
+              : `Done! Your free ${checkoutPlan === 'pro' ? 'Pro' : 'Plus'} Plan trial is active. No charge for 5 days.`}
           </p>
+        </div>
+      )}
+      {checkoutResult === 'canceled' && (
+        <div className="rounded-2xl p-4" style={{ background: '#fef3c7', border: '1.5px solid #fcd34d' }}>
+          <p className="text-sm" style={{ color: '#92400e' }}>
+            {es ? 'Cancelaste el proceso de pago. Puedes intentarlo cuando quieras.' : 'You canceled the checkout. You can try again anytime.'}
+          </p>
+        </div>
+      )}
 
-          {plan === 'free' ? (
-            <>
-              {/* Cabecera plan free */}
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: C.creamWarm }}>
-                  <Zap className="w-5 h-5" style={{ color: C.brownSoft }} />
-                </div>
-                <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingFreeDesc}</p>
+      {/* ── Pago fallido ──────────────────────────────────────────────────── */}
+      {status === 'past_due' && (
+        <div className="rounded-2xl p-5 flex items-start gap-3"
+          style={{ background: '#fbeae5', border: '1.5px solid #f97316' }}>
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" style={{ color: '#b4412e' }} />
+          <div>
+            <p className="font-bold text-sm mb-1" style={{ color: '#b4412e' }}>{M.billingPastDue}</p>
+            <p className="text-sm" style={{ color: '#7c2d12' }}>{M.billingPastDueDesc}</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Plan actual ───────────────────────────────────────────────────── */}
+      <div className="rounded-[2rem] p-6" style={{ background: 'white', boxShadow: `0 4px 20px ${C.mustardDark}10` }}>
+        <p className="text-xs uppercase tracking-wider font-semibold mb-5" style={{ color: C.brownLight }}>
+          {M.billingCurrentPlan}
+        </p>
+
+        {/* FREE / CANCELED */}
+        {(status === 'free' || status === 'canceled') && (
+          <>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: C.creamWarm }}>
+                <Zap className="w-5 h-5" style={{ color: C.brownSoft }} />
               </div>
-
-              {/* Barra de uso mensual */}
-              <div>
-                <div className="flex justify-between text-xs mb-2" style={{ color: C.brownSoft }}>
-                  <span>{M.billingUsed} {copiesThisMonth} {es ? 'copias' : 'copies'}</span>
-                  <span>{copiesLeft} {es ? 'restantes' : 'remaining'}</span>
-                </div>
-                <div className="h-3 rounded-full overflow-hidden" style={{ background: C.creamSoft }}>
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${pct}%`, background: barColor }}
-                  />
-                </div>
-                <div className="flex items-center justify-between mt-1.5">
-                  <p className="text-xs" style={{ color: C.brownLight }}>
-                    {copiesThisMonth}/{COPY_LIMIT} {es ? 'copias este mes' : 'copies this month'}
-                  </p>
-                  <p className="text-xs" style={{ color: C.brownLight }}>
-                    {es ? `Se reinicia el ${nextResetDate}` : `Resets ${nextResetDate}`}
-                  </p>
-                </div>
-                {/* Total historico */}
-                <p className="text-xs mt-2" style={{ color: C.brownLight, opacity: 0.7 }}>
-                  {es ? `Total generadas: ${notesTotal}` : `Total generated: ${notesTotal}`}
+              <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingFreeDesc}</p>
+            </div>
+            <div>
+              <div className="flex justify-between text-xs mb-2" style={{ color: C.brownSoft }}>
+                <span>{M.billingUsed} {copies} {es ? 'copias' : 'copies'}</span>
+                <span>{copiesLeft} {es ? 'restantes' : 'remaining'}</span>
+              </div>
+              <div className="h-3 rounded-full overflow-hidden" style={{ background: C.creamSoft }}>
+                <div className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${pct}%`, background: barColor }} />
+              </div>
+              <div className="flex justify-between mt-1.5">
+                <p className="text-xs" style={{ color: C.brownLight }}>
+                  {copies}/{COPY_LIMIT} {es ? 'copias este mes' : 'copies this month'}
+                </p>
+                <p className="text-xs" style={{ color: C.brownLight }}>
+                  {es ? `Reinicia el ${nextResetDate}` : `Resets ${nextResetDate}`}
                 </p>
               </div>
-            </>
-          ) : (
-            /* Plan pro */
-            <div className="flex items-center gap-3">
+              <p className="text-xs mt-2" style={{ color: C.brownLight, opacity: 0.7 }}>
+                {es ? `Total generadas: ${notesTotal}` : `Total generated: ${notesTotal}`}
+              </p>
+            </div>
+          </>
+        )}
+
+        {/* TRIAL */}
+        {status === 'trial' && (
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: C.mustardSoft }}>
+              <Crown className="w-5 h-5" style={{ color: C.mustardDark }} />
+            </div>
+            <div>
+              <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingTrialDesc}</p>
+              <p className="text-sm font-semibold" style={{ color: C.mustardDark }}>
+                {chosenPlan === 'pro' ? 'Plan Pro' : 'Plan Plus'} —{' '}
+                {es ? `${trialDaysLeft} día${trialDaysLeft !== 1 ? 's' : ''} restante${trialDaysLeft !== 1 ? 's' : ''}` : `${trialDaysLeft} day${trialDaysLeft !== 1 ? 's' : ''} remaining`}
+              </p>
+              {trialEndsAt && (
+                <p className="text-xs mt-0.5" style={{ color: C.brownLight }}>
+                  {M.billingTrialEnds} {formatDate(trialEndsAt)}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* PLUS */}
+        {status === 'plus' && (
+          <>
+            <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: C.mustardSoft }}>
                 <Crown className="w-5 h-5" style={{ color: C.mustardDark }} />
               </div>
               <div>
-                <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingProDesc}</p>
-                <p className="text-sm font-semibold" style={{ color: C.mustardDark }}>{M.billingProPrice}</p>
-                {formatProRenewal(proRenewalDate) && (
+                <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingPlusDesc}</p>
+                <p className="text-sm font-semibold" style={{ color: C.mustardDark }}>{M.billingPlusPrice}</p>
+                {periodEnd && (
                   <p className="text-xs mt-0.5" style={{ color: C.brownLight }}>
-                    {es ? `Renovación: ${formatProRenewal(proRenewalDate)}` : `Renews: ${formatProRenewal(proRenewalDate)}`}
+                    {M.billingRenews}: {formatDate(periodEnd)}
                   </p>
                 )}
               </div>
             </div>
-          )}
-        </div>
-
-        {/* Upgrade card (solo plan free) */}
-        {plan === 'free' && (
-          <div
-            className="rounded-[2rem] p-6"
-            style={{ background: C.brown, boxShadow: `0 8px 30px ${C.brown}30` }}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              <Crown className="w-4 h-4" style={{ color: C.mustardSoft }} />
-              <p className="font-bold text-base" style={{ color: C.cream }}>
-                {M.billingUpgradeTitle}
+            <div>
+              <div className="flex justify-between text-xs mb-2" style={{ color: C.brownSoft }}>
+                <span>{M.billingUsed} {copies} {es ? 'copias' : 'copies'}</span>
+                <span>{copiesLeft} {es ? 'restantes' : 'remaining'}</span>
+              </div>
+              <div className="h-3 rounded-full overflow-hidden" style={{ background: C.creamSoft }}>
+                <div className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${pct}%`, background: barColor }} />
+              </div>
+              <p className="text-xs mt-1.5 text-right" style={{ color: C.brownLight }}>
+                {copies}/{PLUS_COPY_LIMIT} {es ? 'copias este mes' : 'copies this month'}
               </p>
             </div>
-            <p className="text-sm mb-5" style={{ color: C.creamWarm, opacity: 0.85 }}>
-              {M.billingUpgradeDesc}
-            </p>
-            <ul className="space-y-2.5 mb-6">
-              {proFeatures.map((f, i) => (
-                <li key={i} className="flex items-center gap-2.5 text-sm" style={{ color: C.cream }}>
-                  <Check className="w-4 h-4 shrink-0" style={{ color: C.mustardSoft }} strokeWidth={2.5} />
-                  {f}
-                </li>
-              ))}
-            </ul>
-            <button
-              onClick={() => setShowComingSoon(true)}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-full font-semibold text-sm transition-all hover:opacity-90"
-              style={{ background: C.mustardSoft, color: C.brown }}
-            >
-              <CreditCard className="w-4 h-4" />
-              {M.billingUpgradeBtn}
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
+          </>
         )}
 
-        {/* Historial de pagos */}
-        <div
-          className="rounded-[2rem] p-6"
-          style={{ background: 'white', boxShadow: `0 4px 20px ${C.mustardDark}10` }}
-        >
-          <p className="text-xs uppercase tracking-wider font-semibold mb-4" style={{ color: C.brownLight }}>
-            {M.billingPayments}
-          </p>
-          <p className="text-sm" style={{ color: C.brownLight }}>
-            {M.billingNoPayments}
-          </p>
-        </div>
+        {/* PRO */}
+        {(status === 'pro' || status === 'past_due') && (
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: C.mustardSoft }}>
+              <Crown className="w-5 h-5" style={{ color: C.mustardDark }} />
+            </div>
+            <div>
+              <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingProDesc}</p>
+              <p className="text-sm font-semibold" style={{ color: C.mustardDark }}>{M.billingProPrice}</p>
+              {periodEnd && status === 'pro' && (
+                <p className="text-xs mt-0.5" style={{ color: C.brownLight }}>
+                  {M.billingRenews}: {formatDate(periodEnd)}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Modal: Próximamente */}
-      {showComingSoon && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(61,52,42,0.5)', backdropFilter: 'blur(4px)' }}
-          onClick={() => setShowComingSoon(false)}
-        >
-          <div
-            className="rounded-[2rem] w-full max-w-sm p-8 text-center"
-            style={{ background: 'white', boxShadow: `0 24px 60px ${C.brown}30` }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              className="w-14 h-14 rounded-3xl flex items-center justify-center mx-auto mb-4"
-              style={{ background: C.mustardSoft }}
-            >
-              <Crown className="w-7 h-7" style={{ color: C.mustardDark }} />
-            </div>
-            <h3 className="text-xl font-bold mb-2" style={{ color: C.brown }}>
-              {M.billingComingSoon}
-            </h3>
-            <p className="text-sm mb-6" style={{ color: C.brownSoft }}>
-              {es
-                ? 'Estamos integrando Stripe. En cuanto esté listo recibirás una notificación.'
-                : "We're integrating Stripe. You'll get a notification when it's ready."}
-            </p>
-            <button
-              onClick={() => setShowComingSoon(false)}
-              className="px-6 py-3 rounded-full font-semibold text-sm transition-all hover:opacity-80"
-              style={{ background: C.brown, color: C.cream }}
-            >
-              {es ? 'Entendido' : 'Got it'}
-            </button>
+      {/* ── Planes disponibles (free / canceled) ─────────────────────────── */}
+      {(status === 'free' || status === 'canceled') && (
+        <>
+          {/* Header de la sección */}
+          <div className="text-center py-2">
+            <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingUpgradeTitle}</p>
+            <p className="text-sm" style={{ color: C.brownSoft }}>{M.billingUpgradeDesc}</p>
           </div>
+
+          {checkoutError && (
+            <div className="rounded-2xl px-4 py-3 text-sm"
+              style={{ background: '#fbeae5', color: '#b4412e' }}>
+              {checkoutError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Plan Plus */}
+            <div className="rounded-[2rem] p-6 flex flex-col"
+              style={{ background: 'white', boxShadow: `0 4px 20px ${C.mustardDark}10`, border: `1.5px solid ${C.creamWarm}` }}>
+              <p className="text-xs uppercase tracking-wider font-semibold mb-1" style={{ color: C.brownLight }}>Plus</p>
+              <div className="flex items-baseline gap-1 mb-1">
+                <span className="text-3xl font-bold" style={{ color: C.brown }}>$19.99</span>
+                <span className="text-sm" style={{ color: C.brownSoft }}>{es ? '/mes' : '/mo'}</span>
+              </div>
+              <p className="text-xs mb-4" style={{ color: C.brownLight }}>
+                {es ? '5 días gratis, luego $19.99/mes' : '5 days free, then $19.99/mo'}
+              </p>
+              <ul className="space-y-2 mb-6 flex-1">
+                {plusFeatures.map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs" style={{ color: C.brownSoft }}>
+                    <Check className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: C.mustardDark }} strokeWidth={2.5} />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => startCheckout('plus')}
+                disabled={checkoutLoading !== null}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-full font-semibold text-sm transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: C.brown, color: C.cream }}>
+                {checkoutLoading === 'plus' ? (
+                  <div className="w-4 h-4 border-2 rounded-full animate-spin"
+                    style={{ borderColor: C.cream, borderTopColor: 'transparent' }} />
+                ) : (
+                  <>
+                    <CreditCard className="w-4 h-4" />
+                    {M.billingStartTrial}
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Plan Pro */}
+            <div className="rounded-[2rem] p-6 flex flex-col"
+              style={{ background: C.brown, boxShadow: `0 8px 30px ${C.brown}30` }}>
+              <div className="flex items-center gap-1.5 mb-1">
+                <Crown className="w-3.5 h-3.5" style={{ color: C.mustardSoft }} />
+                <p className="text-xs uppercase tracking-wider font-semibold" style={{ color: C.mustardSoft }}>Pro</p>
+              </div>
+              <div className="flex items-baseline gap-1 mb-1">
+                <span className="text-3xl font-bold" style={{ color: C.cream }}>$29.99</span>
+                <span className="text-sm" style={{ color: C.creamWarm, opacity: 0.75 }}>{es ? '/mes' : '/mo'}</span>
+              </div>
+              <p className="text-xs mb-4" style={{ color: C.creamWarm, opacity: 0.7 }}>
+                {es ? '5 días gratis, luego $29.99/mes' : '5 days free, then $29.99/mo'}
+              </p>
+              <ul className="space-y-2 mb-6 flex-1">
+                {proFeatures.map((f, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs" style={{ color: C.cream }}>
+                    <Check className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: C.mustardSoft }} strokeWidth={2.5} />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <button
+                onClick={() => startCheckout('pro')}
+                disabled={checkoutLoading !== null}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-full font-semibold text-sm transition-all hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{ background: C.mustardSoft, color: C.brown }}>
+                {checkoutLoading === 'pro' ? (
+                  <div className="w-4 h-4 border-2 rounded-full animate-spin"
+                    style={{ borderColor: C.brown, borderTopColor: 'transparent' }} />
+                ) : (
+                  <>
+                    <CreditCard className="w-4 h-4" />
+                    {M.billingStartTrial}
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          <p className="text-xs text-center" style={{ color: C.brownLight }}>
+            {es
+              ? '* Sin cobro hasta el día 6. Cancela cuando quieras.'
+              : '* No charge until day 6. Cancel anytime.'}
+          </p>
+        </>
+      )}
+
+      {/* ── Upgrade a Pro (solo Plus) ──────────────────────────────────────── */}
+      {status === 'plus' && (
+        <div className="rounded-[2rem] p-6"
+          style={{ background: C.brown, boxShadow: `0 8px 30px ${C.brown}30` }}>
+          <div className="flex items-center gap-2 mb-2">
+            <Crown className="w-4 h-4" style={{ color: C.mustardSoft }} />
+            <p className="font-bold text-base" style={{ color: C.cream }}>
+              {es ? 'Actualiza a Pro — Ilimitado' : 'Upgrade to Pro — Unlimited'}
+            </p>
+          </div>
+          <p className="text-sm mb-5" style={{ color: C.creamWarm, opacity: 0.8 }}>
+            {es
+              ? 'Notas ilimitadas, mayor capacidad de IA y todas las funciones futuras.'
+              : 'Unlimited notes, higher AI capacity, and all future features.'}
+          </p>
+          {checkoutError && (
+            <p className="text-xs mb-3 rounded-xl px-3 py-2"
+              style={{ background: '#fbeae5', color: '#b4412e' }}>{checkoutError}</p>
+          )}
+          <button
+            onClick={() => startCheckout('pro')}
+            disabled={checkoutLoading !== null}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-full font-semibold text-sm transition-all hover:opacity-90 disabled:opacity-50"
+            style={{ background: C.mustardSoft, color: C.brown }}>
+            {checkoutLoading === 'pro' ? (
+              <div className="w-4 h-4 border-2 rounded-full animate-spin"
+                style={{ borderColor: C.brown, borderTopColor: 'transparent' }} />
+            ) : (
+              <>
+                <CreditCard className="w-4 h-4" />
+                {es ? 'Actualizar a Pro — $29.99/mes' : 'Upgrade to Pro — $29.99/mo'}
+                <ArrowRight className="w-4 h-4" />
+              </>
+            )}
+          </button>
         </div>
       )}
-    </>
+
+      {/* ── Historial de pagos ─────────────────────────────────────────────── */}
+      <div className="rounded-[2rem] p-6"
+        style={{ background: 'white', boxShadow: `0 4px 20px ${C.mustardDark}10` }}>
+        <p className="text-xs uppercase tracking-wider font-semibold mb-4" style={{ color: C.brownLight }}>
+          {M.billingPayments}
+        </p>
+        <p className="text-sm" style={{ color: C.brownLight }}>{M.billingNoPayments}</p>
+      </div>
+    </div>
   );
 }

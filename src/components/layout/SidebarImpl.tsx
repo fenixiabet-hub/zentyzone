@@ -29,12 +29,13 @@ import { Logo } from '../Logo';
 import { LangToggle } from '../LangToggle';
 import { tm } from '../../translations/menu';
 import type { Lang } from '../../translations';
+import type { PlanStatus } from './AppLayout';
 
 interface SidebarProps {
   lang: Lang;
   setLang: (l: Lang) => void;
   userEmail: string;
-  plan: 'free' | 'pro';
+  plan: PlanStatus;
   notesCount: number;
   onLogout: () => void;
   onClose?: () => void;
@@ -229,9 +230,21 @@ export function Sidebar({
             <p className="text-xs font-medium truncate" style={{ color: C.brown }}>
               {userEmail}
             </p>
-            {plan === 'free' ? (
+            {plan === 'free' || plan === 'canceled' ? (
               <p className="text-[11px]" style={{ color: C.brownLight }}>
                 {M.planFree} · {notesLeft}/{FREE_NOTE_LIMIT} {M.notesUsed}
+              </p>
+            ) : plan === 'trial' ? (
+              <p className="text-[11px] font-semibold" style={{ color: C.mustardDark }}>
+                {M.planTrial} ✦
+              </p>
+            ) : plan === 'plus' ? (
+              <p className="text-[11px] font-semibold" style={{ color: C.mustardDark }}>
+                {M.planPlus} ✦
+              </p>
+            ) : plan === 'past_due' ? (
+              <p className="text-[11px] font-semibold" style={{ color: '#b4412e' }}>
+                {M.planPastDue} ⚠
               </p>
             ) : (
               <p className="text-[11px] font-semibold" style={{ color: C.mustardDark }}>

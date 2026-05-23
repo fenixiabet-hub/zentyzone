@@ -24,7 +24,7 @@ import { supabase } from './lib/supabase';
 import { Landing } from './components/Landing';
 import { Login } from './components/Login';
 import { Logo } from './components/Logo';
-import { AppLayout } from './components/layout/AppLayout';
+import { AppLayout, type PlanStatus } from './components/layout/AppLayout';
 import { Home } from './components/pages/Home';
 import { NewNote } from './components/pages/NewNote';
 import { History } from './components/pages/History';
@@ -71,7 +71,7 @@ export default function App() {
   const [lang, setLang] = useState<Lang>('es');
 
   // Estado del perfil (para el sidebar)
-  const [plan, setPlan] = useState<'free' | 'pro'>('free');
+  const [plan, setPlan] = useState<PlanStatus>('free');
   const [notesCount, setNotesCount] = useState(0);
 
   // ── Sesión Supabase ──
@@ -102,7 +102,13 @@ export default function App() {
       .single()
       .then(({ data }) => {
         if (data) {
-          setPlan(data.subscription_status === 'pro' ? 'pro' : 'free');
+          const validStatuses: PlanStatus[] = ['free','trial','plus','pro','past_due','canceled'];
+          const rawStatus = data.subscription_status as string;
+          setPlan(
+            validStatuses.includes(rawStatus as PlanStatus)
+              ? (rawStatus as PlanStatus)
+              : 'free'
+          );
           setNotesCount(
             typeof data.notes_generated_count === 'number'
               ? data.notes_generated_count
