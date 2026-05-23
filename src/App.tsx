@@ -35,6 +35,7 @@ import { Tutorial } from './components/pages/Tutorial';
 import { FAQ } from './components/pages/FAQ';
 import { Account } from './components/pages/Account';
 import { Billing } from './components/pages/Billing';
+import { Onboarding } from './components/pages/Onboarding';
 import { C } from './theme';
 import type { Lang } from './translations';
 
@@ -62,6 +63,13 @@ function RequireAuth({ session }: { session: Session | null }) {
   return <Outlet />;
 }
 
+// ── Ruta que requiere plan activo: redirige a /onboarding si plan === 'free' ─
+function RequirePlan({ plan, profileLoaded }: { plan: PlanStatus; profileLoaded: boolean }) {
+  if (!profileLoaded) return <LoadingScreen />;
+  if (plan === 'free') return <Navigate to="/onboarding" replace />;
+  return <Outlet />;
+}
+
 // ── Componente principal ───────────────────────────────────
 export default function App() {
   const navigate = useNavigate();
@@ -73,6 +81,7 @@ export default function App() {
   // Estado del perfil (para el sidebar)
   const [plan, setPlan] = useState<PlanStatus>('free');
   const [notesCount, setNotesCount] = useState(0);
+  const [profileLoaded, setProfileLoaded] = useState(false);
 
   // ── Sesión Supabase ──
   useEffect(() => {
@@ -87,14 +96,19 @@ export default function App() {
       if (!newSession) {
         setPlan('free');
         setNotesCount(0);
+        setProfileLoaded(false);
       }
     });
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Perfil del usuario (para el sidebar) ──
+  // ── Perfil del usuario (para el sidebar y RequirePlan) ──
   useEffect(() => {
-    if (!session?.user.id) return;
+    if (!session?.user.id) {
+      setProfileLoaded(false);
+      return;
+    }
+    setProfileLoaded(false);
     supabase
       .from('profiles')
       .select('subscription_status, notes_generated_count')
@@ -102,12 +116,12 @@ export default function App() {
       .single()
       .then(({ data }) => {
         if (data) {
-          const validStatuses: PlanStatus[] = ['free','trial','plus','pro','past_due','canceled'];
+          const validStatuses: PlanStatus[] = ['free', 'trial', 'plus', 'pro', 'past_due', 'canceled'];
           const rawStatus = data.subscription_status as string;
           setPlan(
             validStatuses.includes(rawStatus as PlanStatus)
               ? (rawStatus as PlanStatus)
-              : 'free'
+              : 'free',
           );
           setNotesCount(
             typeof data.notes_generated_count === 'number'
@@ -115,6 +129,7 @@ export default function App() {
               : 0,
           );
         }
+        setProfileLoaded(true);
       });
   }, [session?.user.id]);
 
@@ -161,8 +176,21 @@ export default function App() {
         }
       />
 
-      {/* Rutas protegidas */}
+      {/* Onboarding: requiere sesión, NO requiere plan activo */}
+      <Route
+        path="/onboarding"
+        element={
+          session ? (
+            <Onboarding userId={userId} userEmail={userEmail} lang={lang} />
+          ) : (
+            <Navigate to="/login" replace />
+          )
+        }
+      />
+
+      {/* Rutas protegidas — además requieren plan activo */}
       <Route element={<RequireAuth session={session} />}>
+        <Route element={<RequirePlan plan={plan} profileLoaded={profileLoaded} />}>
         <Route
           path="/app"
           element={
@@ -220,6 +248,7 @@ export default function App() {
             path="billing"
             element={<Billing lang={lang} userId={userId} />}
           />
+        </Route>
         </Route>
       </Route>
 

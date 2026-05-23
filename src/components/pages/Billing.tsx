@@ -11,8 +11,9 @@ import { C } from '../../theme';
 import { tm } from '../../translations/menu';
 import type { Lang } from '../../translations';
 
-const COPY_LIMIT      = 10;
-const PLUS_COPY_LIMIT = 40;
+const COPY_LIMIT       = 5;
+const TRIAL_COPY_LIMIT = 10;
+const PLUS_COPY_LIMIT  = 25;
 
 interface BillingProps {
   lang: Lang;
@@ -74,7 +75,7 @@ export function Billing({ lang, userId }: BillingProps) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, origin: 'billing' }),
       });
       const json = await res.json();
       if (json.url) {
@@ -133,18 +134,18 @@ export function Billing({ lang, userId }: BillingProps) {
   const chosenPlan      = profile?.chosen_plan          ?? null;
   const trialDaysLeft   = daysUntil(trialEndsAt);
 
-  const copyLimit       = status === 'plus' ? PLUS_COPY_LIMIT : COPY_LIMIT;
-  const copiesLeft      = Math.max(0, copyLimit - copies);
-  const pct             = status === 'free' || status === 'canceled' || status === 'trial'
-    ? Math.min(100, (copies / COPY_LIMIT) * 100)
-    : Math.min(100, (copies / PLUS_COPY_LIMIT) * 100);
+  const copyLimit = status === 'plus' ? PLUS_COPY_LIMIT
+    : status === 'trial' ? TRIAL_COPY_LIMIT
+    : COPY_LIMIT;
+  const copiesLeft = Math.max(0, copyLimit - copies);
+  const pct        = Math.min(100, (copies / copyLimit) * 100);
 
   const barColor = pct >= 90 ? '#d97706' : pct >= 70 ? C.mustard : C.mustardSoft;
 
   // ── Plan features lists ─────────────────────────────────────────────────────
   const plusFeatures = es
-    ? ['40 notas confirmadas / mes', 'Soporte prioritario', 'Exportar notas', 'Acceso anticipado a nuevas funciones']
-    : ['40 confirmed notes / month', 'Priority support', 'Export notes', 'Early access to new features'];
+    ? ['25 notas confirmadas / mes', 'Soporte prioritario', 'Exportar notas', 'Acceso anticipado a nuevas funciones']
+    : ['25 confirmed notes / month', 'Priority support', 'Export notes', 'Early access to new features'];
 
   const proFeatures = es
     ? ['Notas ilimitadas', 'Mayor capacidad de IA', 'Soporte prioritario', 'Exportar notas', 'Acceso anticipado a nuevas funciones']

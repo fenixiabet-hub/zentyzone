@@ -5,20 +5,23 @@
  * una nota generada. Hace tres cosas:
  *
  *   1. Valida la sesion unica (sessionId vs profiles.active_session_id).
- *   2. Verifica la cuota de copias del plan free (10/mes, VISIBLE).
- *      - Si el limite esta alcanzado → devuelve { limitReached: true }.
- *      - Si hay cuota disponible    → incrementa copies_this_month.
+ *   2. Verifica la cuota de copias segun plan:
+ *      - free / canceled : 5 / mes
+ *      - trial           : 10 / mes (cubre los 5 dias de prueba)
+ *      - plus            : 25 / mes
+ *      - pro             : ilimitado
+ *      - past_due        : bloqueado (402)
  *   3. Guarda la nota en la tabla `notes`.
- *
- * El plan Pro salta todas las validaciones de cuota.
  * ------------------------------------------------------------
  */
 import { createClient } from '@supabase/supabase-js';
 
-/** Limite visible de copias por mes para el plan free / trial. */
-const COPY_LIMIT = 10;
-/** Limite visible de copias por mes para el plan Plus. */
-const PLUS_COPY_LIMIT = 40;
+/** Limite de copias/mes para usuarios free o canceled. */
+const COPY_LIMIT       = 5;
+/** Limite de copias/mes durante el trial (5 dias). */
+const TRIAL_COPY_LIMIT = 10;
+/** Limite de copias/mes para el plan Plus. */
+const PLUS_COPY_LIMIT  = 25;
 
 type NoteType = 'rbt_daily' | 'soap' | 'bcba_progress';
 
@@ -44,8 +47,6 @@ export async function POST(request: Request): Promise<Response> {
 
   const { sessionId, noteContent, noteType } = body;
 
-  // sessionId es opcional: usuarios que iniciaron sesion antes del Feature B
-  // no tienen el UUID en localStorage y se saltean la validacion de sesion unica.
   if (!noteContent) {
     return jsonResponse({ error: 'Falta el contenido de la nota.' }, 400);
   }
@@ -57,7 +58,7 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: 'No autorizado.' }, 401);
   }
 
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseUrl    = process.env.VITE_SUPABASE_URL;
   const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
   if (!supabaseUrl || !supabaseAnonKey) {
     return jsonResponse({ error: 'Configuracion de base de datos no disponible.' }, 500);
@@ -88,15 +89,16 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: 'No se pudo verificar tu cuenta.' }, 500);
   }
 
-  // ── 6. Validar sesion unica (solo si el cliente envio sessionId) ────────
+  // ── 6. Validar sesion unica ──────────────────────────────────────────
   if (sessionId && profile.active_session_id && profile.active_session_id !== sessionId) {
     return jsonResponse({ error: 'Sesion invalida. Vuelve a iniciar sesion.' }, 401);
   }
 
-  const status     = profile.subscription_status ?? 'free';
-  const isPro      = status === 'pro';
-  const isPlus     = status === 'plus';
-  const isPastDue  = status === 'past_due';
+  const status    = profile.subscription_status ?? 'free';
+  const isPro     = status === 'pro';
+  const isPlus    = status === 'plus';
+  const isTrial   = status === 'trial';
+  const isPastDue = status === 'past_due';
 
   // Bloquear usuarios con pago fallido
   if (isPastDue) {
@@ -106,21 +108,22 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // ── 7. Determinar si corresponde reset mensual ───────────────────────
-  const today = new Date().toISOString().slice(0, 10);          // 'YYYY-MM-DD'
-  const currentMonth = today.slice(0, 7);                        // 'YYYY-MM'
+  // ── 7. Reset mensual (todos los planes excepto Pro) ──────────────────
+  const today        = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+  const currentMonth = today.slice(0, 7);                     // 'YYYY-MM'
   const lastResetMonth = (profile.last_reset_date ?? '').slice(0, 7);
-  const isPaid   = isPro || isPlus;
-  const needsReset = !isPaid && currentMonth !== lastResetMonth;
+  const needsReset = !isPro && currentMonth !== lastResetMonth;
 
   let copiesThisMonth = needsReset ? 0 : (profile.copies_this_month ?? 0);
 
   // Limite segun plan
-  const effectiveCopyLimit = isPro ? Infinity : isPlus ? PLUS_COPY_LIMIT : COPY_LIMIT;
+  const effectiveCopyLimit = isPro     ? Infinity
+    : isPlus   ? PLUS_COPY_LIMIT
+    : isTrial  ? TRIAL_COPY_LIMIT
+    : COPY_LIMIT; // free o canceled
 
   // ── 8. Verificar cuota ────────────────────────────────────────────────
   if (!isPro && copiesThisMonth >= effectiveCopyLimit) {
-    // Calcular fecha del proximo reset (dia 1 del mes siguiente)
     const now = new Date();
     const nextReset = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
@@ -128,17 +131,17 @@ export async function POST(request: Request): Promise<Response> {
       {
         limitReached: true,
         copiesUsed: copiesThisMonth,
-        copiesLimit: effectiveCopyLimit === Infinity ? null : effectiveCopyLimit,
-        nextReset: nextReset.toISOString().slice(0, 10), // 'YYYY-MM-DD'
+        copiesLimit: effectiveCopyLimit,
+        nextReset: nextReset.toISOString().slice(0, 10),
       },
-      200, // 200: no es un error del servidor, es logica de negocio
+      200,
     );
   }
 
-  // ── 9. Incrementar copies_this_month (y resetear si toca) ────────────
+  // ── 9. Incrementar copies_this_month ─────────────────────────────────
   const newCopiesCount = copiesThisMonth + 1;
   const updateData: Record<string, unknown> = {
-    copies_this_month: isPaid ? copiesThisMonth : newCopiesCount,
+    copies_this_month: isPro ? copiesThisMonth : newCopiesCount,
   };
   if (needsReset) {
     updateData.generations_this_month = 0;
@@ -156,7 +159,6 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // ── 10. Guardar la nota en la tabla `notes` ──────────────────────────
-  // No fallamos si esto falla: la copia ya fue contada.
   const { error: noteErr } = await supabase.from('notes').insert({
     user_id: user.id,
     note_type: noteType ?? null,
@@ -169,8 +171,8 @@ export async function POST(request: Request): Promise<Response> {
   return jsonResponse(
     {
       success: true,
-      copiesUsed: isPaid ? null : newCopiesCount,
-      copiesLimit: isPaid ? null : (isPlus ? PLUS_COPY_LIMIT : COPY_LIMIT),
+      copiesUsed: isPro ? null : newCopiesCount,
+      copiesLimit: isPro ? null : effectiveCopyLimit,
     },
     200,
   );

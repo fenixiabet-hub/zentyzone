@@ -25,10 +25,12 @@ import { createClient } from '@supabase/supabase-js';
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 // Maximo de tokens: alto porque la nota viene en 2 idiomas.
 const MAX_TOKENS = 8000;
-// Limite silencioso de generaciones por mes (plan free / trial).
-const SILENT_GEN_LIMIT = 50;
+// Limite silencioso de generaciones por mes (plan free / canceled).
+const SILENT_GEN_LIMIT = 10;
+// Limite silencioso de generaciones por mes (plan trial).
+const TRIAL_GEN_LIMIT = 20;
 // Limite silencioso de generaciones por mes (plan plus).
-const PLUS_GEN_LIMIT = 120;
+const PLUS_GEN_LIMIT = 50;
 
 type NoteType = 'rbt_daily' | 'soap' | 'bcba_progress';
 type Language = 'es' | 'en';
@@ -223,8 +225,9 @@ export async function POST(request: Request): Promise<Response> {
 
     const status = profile.subscription_status ?? 'free';
     isPro = status === 'pro';
-    const isPlus     = status === 'plus';
-    const isPastDue  = status === 'past_due';
+    const isPlus    = status === 'plus';
+    const isTrial   = status === 'trial';
+    const isPastDue = status === 'past_due';
 
     // Bloquear usuarios con pago fallido
     if (isPastDue) {
@@ -246,7 +249,7 @@ export async function POST(request: Request): Promise<Response> {
       const effectiveGenerations = needsReset ? 0 : generationsThisMonth;
 
       // Elegir limite segun plan
-      const genLimit = isPlus ? PLUS_GEN_LIMIT : SILENT_GEN_LIMIT;
+      const genLimit = isPlus ? PLUS_GEN_LIMIT : isTrial ? TRIAL_GEN_LIMIT : SILENT_GEN_LIMIT;
 
       // Limite silencioso: no revelar el numero al usuario
       if (effectiveGenerations >= genLimit) {

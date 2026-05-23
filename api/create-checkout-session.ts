@@ -35,11 +35,11 @@ export async function POST(request: Request): Promise<Response> {
   if (!token) return jsonResponse({ error: 'Unauthorized.' }, 401);
 
   // ── 3. Body ────────────────────────────────────────────────
-  let body: { plan?: Plan };
+  let body: { plan?: Plan; origin?: 'onboarding' | 'billing' };
   try { body = await request.json(); }
   catch { return jsonResponse({ error: 'Invalid JSON.' }, 400); }
 
-  const { plan } = body;
+  const { plan, origin } = body;
   if (!plan || !VALID_PLANS.includes(plan)) {
     return jsonResponse({ error: 'Invalid plan. Must be "plus" or "pro".' }, 400);
   }
@@ -94,8 +94,12 @@ export async function POST(request: Request): Promise<Response> {
         trial_period_days: 5,
         metadata: { supabase_user_id: user.id, chosen_plan: plan },
       },
-      success_url: `${siteUrl}/app/billing?checkout=success&plan=${plan}`,
-      cancel_url:  `${siteUrl}/app/billing?checkout=canceled`,
+      success_url: origin === 'onboarding'
+        ? `${siteUrl}/onboarding?checkout=success&plan=${plan}`
+        : `${siteUrl}/app/billing?checkout=success&plan=${plan}`,
+      cancel_url: origin === 'onboarding'
+        ? `${siteUrl}/onboarding?checkout=canceled`
+        : `${siteUrl}/app/billing?checkout=canceled`,
       metadata: { supabase_user_id: user.id, chosen_plan: plan },
     });
 
