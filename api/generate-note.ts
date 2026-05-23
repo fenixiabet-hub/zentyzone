@@ -9,16 +9,24 @@
  *   - una PREGUNTA (si le falta informacion), o
  *   - la NOTA final (en ingles y espanol).
  *
+ * CUOTAS (plan free):
+ *   - 50 generaciones/mes — limite SILENCIOSO (no se muestra al usuario).
+ *   - 10 copias/mes       — limite VISIBLE (gestionado en confirm-copy.ts).
+ *   - Reset el dia 1 de cada mes a las 00:00 UTC.
+ *
  * AUTOSUFICIENTE: el System Prompt de Zenty esta aqui mismo. Si
  * quieres cambiar como se comporta Zenty, edita getZentySystemPrompt.
  * ------------------------------------------------------------
  */
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@supabase/supabase-js';
 
 // Modelo de Claude (verificado en docs de Anthropic, mayo 2026).
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 // Maximo de tokens: alto porque la nota viene en 2 idiomas.
 const MAX_TOKENS = 8000;
+// Limite silencioso de generaciones por mes (plan free).
+const SILENT_GEN_LIMIT = 50;
 
 type NoteType = 'rbt_daily' | 'soap' | 'bcba_progress';
 type Language = 'es' | 'en';
@@ -109,7 +117,7 @@ function jsonResponse(body: unknown, status: number): Response {
 
 /** Maneja las peticiones POST a /api/generate-note */
 export async function POST(request: Request): Promise<Response> {
-  // --- 1. Verificar la clave secreta ---
+  // ── 1. Verificar la clave secreta de Anthropic ──────────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return jsonResponse(
@@ -118,11 +126,12 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // --- 2. Leer y validar el cuerpo ---
+  // ── 2. Leer y validar el cuerpo ──────────────────────────────────────
   let body: {
     messages?: ChatMessage[];
     noteType?: NoteType;
     language?: Language;
+    sessionId?: string; // UUID guardado en localStorage tras el login
   };
   try {
     body = await request.json();
@@ -130,7 +139,7 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: 'La peticion no es un JSON valido.' }, 400);
   }
 
-  const { messages, noteType, language } = body;
+  const { messages, noteType, language, sessionId } = body;
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return jsonResponse({ error: 'Falta la conversacion (messages).' }, 400);
@@ -160,7 +169,79 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Idioma invalido (language).' }, 400);
   }
 
-  // --- 3. Llamar a Claude ---
+  // ── 3. Autenticacion + validacion de cuotas ──────────────────────────
+  // Estos campos se populan si el frontend envio sessionId + JWT.
+  // Si no lo envio (ej. durante desarrollo pre-Paso5), se omite la validacion.
+  type SupaClient = ReturnType<typeof createClient>;
+  let supaClient: SupaClient | null = null;
+  let userId: string | null = null;
+  let isPro = false;
+  let generationsThisMonth = 0;
+  let notesGeneratedTotal = 0;
+  let needsReset = false;
+
+  const authHeader = request.headers.get('Authorization');
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (sessionId && token && supabaseUrl && supabaseAnonKey) {
+    // Crear cliente con el JWT del usuario (respeta RLS)
+    supaClient = createClient(supabaseUrl, supabaseAnonKey, {
+      global: { headers: { Authorization: `Bearer ${token}` } },
+    });
+
+    // Verificar JWT
+    const {
+      data: { user },
+      error: authErr,
+    } = await supaClient.auth.getUser();
+    if (authErr || !user) {
+      return jsonResponse({ error: 'Sesion no valida. Vuelve a iniciar sesion.' }, 401);
+    }
+    userId = user.id;
+
+    // Leer perfil
+    const { data: profile, error: profileErr } = await supaClient
+      .from('profiles')
+      .select(
+        'subscription_status, active_session_id, generations_this_month, last_reset_date, notes_generated_count',
+      )
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !profile) {
+      return jsonResponse({ error: 'No se pudo verificar tu cuenta.' }, 500);
+    }
+
+    // Validar sesion unica: el sessionId del localStorage debe coincidir
+    if (profile.active_session_id && profile.active_session_id !== sessionId) {
+      return jsonResponse({ error: 'Sesion invalida. Vuelve a iniciar sesion.' }, 401);
+    }
+
+    isPro = profile.subscription_status === 'pro';
+    generationsThisMonth = profile.generations_this_month ?? 0;
+    notesGeneratedTotal = profile.notes_generated_count ?? 0;
+
+    if (!isPro) {
+      // Determinar si corresponde un reset mensual
+      const currentMonth = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
+      const lastResetMonth = (profile.last_reset_date ?? '').slice(0, 7);
+      needsReset = currentMonth !== lastResetMonth;
+
+      const effectiveGenerations = needsReset ? 0 : generationsThisMonth;
+
+      // Limite silencioso: no revelar el numero al usuario
+      if (effectiveGenerations >= SILENT_GEN_LIMIT) {
+        return jsonResponse(
+          { error: 'No se pudo generar la nota. Intentalo de nuevo.' },
+          500,
+        );
+      }
+    }
+  }
+
+  // ── 4. Llamar a Claude ───────────────────────────────────────────────
   try {
     const anthropic = new Anthropic({ apiKey });
     const systemPrompt = getZentySystemPrompt(noteType, language);
@@ -181,7 +262,7 @@ export async function POST(request: Request): Promise<Response> {
       return jsonResponse({ error: 'Claude no devolvio texto.' }, 502);
     }
 
-    // --- 4. Interpretar: pregunta o nota ---
+    // ── 5. Interpretar: pregunta o nota ──────────────────────────────
     let type: 'question' | 'note' = 'note';
     let content = text;
     if (/^PREGUNTA:/i.test(text)) {
@@ -190,6 +271,32 @@ export async function POST(request: Request): Promise<Response> {
     } else if (/^NOTA:/i.test(text)) {
       type = 'note';
       content = text.replace(/^NOTA:/i, '').trim();
+    }
+
+    // ── 6. Incrementar contadores (solo cuando se produce una NOTA) ──
+    // Las preguntas intermedias NO cuentan como generaciones.
+    if (supaClient && userId && type === 'note') {
+      const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
+
+      if (!isPro) {
+        // Plan free: actualizar generations_this_month + reset si toca
+        const newGenCount = needsReset ? 1 : generationsThisMonth + 1;
+        const updateData: Record<string, unknown> = {
+          generations_this_month: newGenCount,
+          notes_generated_count: notesGeneratedTotal + 1,
+        };
+        if (needsReset) {
+          updateData.copies_this_month = 0;
+          updateData.last_reset_date = today;
+        }
+        await supaClient.from('profiles').update(updateData).eq('id', userId);
+      } else {
+        // Plan pro: solo registro historico, sin limite
+        await supaClient
+          .from('profiles')
+          .update({ notes_generated_count: notesGeneratedTotal + 1 })
+          .eq('id', userId);
+      }
     }
 
     return jsonResponse({ type, content }, 200);

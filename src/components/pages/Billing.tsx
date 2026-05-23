@@ -9,7 +9,7 @@ import { C } from '../../theme';
 import { tm } from '../../translations/menu';
 import type { Lang } from '../../translations';
 
-const FREE_NOTE_LIMIT = 20;
+const COPY_LIMIT = 10; // copias/mes — limite visible del plan free
 
 interface BillingProps {
   lang: Lang;
@@ -20,34 +20,55 @@ export function Billing({ lang, userId }: BillingProps) {
   const M = tm[lang];
   const es = lang === 'es';
 
-  const [plan, setPlan]             = useState<'free' | 'pro'>('free');
-  const [notesCount, setNotesCount] = useState(0);
-  const [loading, setLoading]       = useState(true);
+  const [plan, setPlan]                       = useState<'free' | 'pro'>('free');
+  const [copiesThisMonth, setCopiesThisMonth] = useState(0);
+  const [notesTotal, setNotesTotal]           = useState(0);
+  const [proRenewalDate, setProRenewalDate]   = useState<string | null>(null);
+  const [loading, setLoading]                 = useState(true);
   const [showComingSoon, setShowComingSoon] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
     supabase
       .from('profiles')
-      .select('subscription_status, notes_generated_count')
+      .select('subscription_status, copies_this_month, notes_generated_count, pro_renewal_date')
       .eq('id', userId)
       .single()
       .then(({ data }) => {
         if (data) {
           setPlan(data.subscription_status === 'pro' ? 'pro' : 'free');
-          setNotesCount(data.notes_generated_count ?? 0);
+          setCopiesThisMonth(data.copies_this_month ?? 0);
+          setNotesTotal(data.notes_generated_count ?? 0);
+          setProRenewalDate(data.pro_renewal_date ?? null);
         }
         setLoading(false);
       });
   }, [userId]);
 
-  const notesLeft = Math.max(0, FREE_NOTE_LIMIT - notesCount);
-  const pct       = Math.min(100, (notesCount / FREE_NOTE_LIMIT) * 100);
+  const copiesLeft = Math.max(0, COPY_LIMIT - copiesThisMonth);
+  const pct        = Math.min(100, (copiesThisMonth / COPY_LIMIT) * 100);
 
   const barColor =
     pct >= 90 ? '#d97706' :
     pct >= 70 ? C.mustard :
     C.mustardSoft;
+
+  // Fecha de proximo reset (1ro del mes siguiente)
+  const nextResetDate = (() => {
+    const now = new Date();
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+    return d.toLocaleDateString(es ? 'es-US' : 'en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
+  })();
+
+  // Formato fecha de renovacion Pro
+  const formatProRenewal = (dateStr: string | null) => {
+    if (!dateStr) return null;
+    try {
+      return new Date(dateStr + 'T00:00:00Z').toLocaleDateString(es ? 'es-US' : 'en-US', {
+        month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
+      });
+    } catch { return null; }
+  };
 
   const proFeatures = es
     ? ['Notas ilimitadas de por vida', 'Prioridad de respuesta de Zenty', 'Acceso anticipado a nuevas funciones', 'Soporte prioritario']
@@ -92,11 +113,11 @@ export function Billing({ lang, userId }: BillingProps) {
                 <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingFreeDesc}</p>
               </div>
 
-              {/* Barra de uso */}
+              {/* Barra de uso mensual */}
               <div>
                 <div className="flex justify-between text-xs mb-2" style={{ color: C.brownSoft }}>
-                  <span>{M.billingUsed} {notesCount} {es ? 'notas' : 'notes'}</span>
-                  <span>{notesLeft} {es ? 'restantes' : 'remaining'}</span>
+                  <span>{M.billingUsed} {copiesThisMonth} {es ? 'copias' : 'copies'}</span>
+                  <span>{copiesLeft} {es ? 'restantes' : 'remaining'}</span>
                 </div>
                 <div className="h-3 rounded-full overflow-hidden" style={{ background: C.creamSoft }}>
                   <div
@@ -104,8 +125,17 @@ export function Billing({ lang, userId }: BillingProps) {
                     style={{ width: `${pct}%`, background: barColor }}
                   />
                 </div>
-                <p className="text-xs mt-1.5" style={{ color: C.brownLight }}>
-                  {notesCount}/{FREE_NOTE_LIMIT} {es ? 'notas usadas' : 'notes used'}
+                <div className="flex items-center justify-between mt-1.5">
+                  <p className="text-xs" style={{ color: C.brownLight }}>
+                    {copiesThisMonth}/{COPY_LIMIT} {es ? 'copias este mes' : 'copies this month'}
+                  </p>
+                  <p className="text-xs" style={{ color: C.brownLight }}>
+                    {es ? `Se reinicia el ${nextResetDate}` : `Resets ${nextResetDate}`}
+                  </p>
+                </div>
+                {/* Total historico */}
+                <p className="text-xs mt-2" style={{ color: C.brownLight, opacity: 0.7 }}>
+                  {es ? `Total generadas: ${notesTotal}` : `Total generated: ${notesTotal}`}
                 </p>
               </div>
             </>
@@ -118,6 +148,11 @@ export function Billing({ lang, userId }: BillingProps) {
               <div>
                 <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingProDesc}</p>
                 <p className="text-sm font-semibold" style={{ color: C.mustardDark }}>{M.billingProPrice}</p>
+                {formatProRenewal(proRenewalDate) && (
+                  <p className="text-xs mt-0.5" style={{ color: C.brownLight }}>
+                    {es ? `Renovación: ${formatProRenewal(proRenewalDate)}` : `Renews: ${formatProRenewal(proRenewalDate)}`}
+                  </p>
+                )}
               </div>
             </div>
           )}

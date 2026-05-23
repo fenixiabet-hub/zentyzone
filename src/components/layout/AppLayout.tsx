@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { MobileMenuButton } from './MobileMenuButton';
+import { useSessionGuard } from '../../hooks/useSessionGuard';
 import { C } from '../../theme';
 import type { Lang } from '../../translations';
 
@@ -31,6 +32,7 @@ export function AppLayout({
   notesCount,
   onLogout,
 }: AppLayoutProps) {
+  useSessionGuard(); // Vigila sesión única en toda la app autenticada
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (

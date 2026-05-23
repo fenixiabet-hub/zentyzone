@@ -7,7 +7,8 @@
  * ------------------------------------------------------------
  */
 import { useState, type SyntheticEvent } from 'react';
-import { ArrowRight, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { ArrowRight, Mail, Lock, Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { C } from '../theme';
 import { t, type Lang } from '../translations';
 import { supabase } from '../lib/supabase';
@@ -71,6 +72,10 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
   const [errorMsg, setErrorMsg] = useState('');
   const [signupDone, setSignupDone] = useState(false);
 
+  const [searchParams] = useSearchParams();
+  const sessionTaken = searchParams.get('reason') === 'session_taken';
+  const es = lang === 'es';
+
   const handleSubmit = async (e?: SyntheticEvent) => {
     e?.preventDefault();
     if (loading) return;
@@ -109,12 +114,22 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
           setSignupDone(true);
         }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({
+        const { data: signInData, error } = await supabase.auth.signInWithPassword({
           email: cleanEmail,
           password,
         });
         if (error) {
           setErrorMsg(authError(error.message, lang));
+        } else if (signInData.user) {
+          const sessionId = crypto.randomUUID();
+          await supabase
+            .from('profiles')
+            .update({
+              active_session_id: sessionId,
+              last_login_at: new Date().toISOString(),
+            })
+            .eq('id', signInData.user.id);
+          localStorage.setItem('zenty_session_id', sessionId);
         }
         // Si tiene exito, App.tsx detecta la sesion y muestra el Dashboard.
       }
@@ -160,6 +175,31 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
 
         <div className="flex-1 flex items-center">
           <div className="w-full max-w-md mx-auto">
+            {/* ── Banner: sesión cerrada por seguridad ── */}
+            {sessionTaken && (
+              <div
+                className="rounded-xl p-5 mb-6 flex items-start gap-3"
+                style={{ background: C.mustardSoft + '50', border: `1.5px solid ${C.mustard}` }}
+              >
+                <ShieldAlert className="w-7 h-7 shrink-0 mt-0.5" style={{ color: C.mustardDark }} />
+                <div>
+                  <h3 className="font-bold text-base mb-1.5" style={{ color: C.brown }}>
+                    {es ? 'Sesión cerrada por seguridad' : 'Session closed for security'}
+                  </h3>
+                  <p className="text-sm mb-1.5" style={{ color: C.brownSoft }}>
+                    {es
+                      ? 'Detectamos un nuevo inicio de sesión desde otro dispositivo. Por seguridad de la información clínica que manejas, Zentyzone solo permite una sesión activa a la vez.'
+                      : 'We detected a new login from another device. For the security of the clinical information you handle, Zentyzone only allows one active session at a time.'}
+                  </p>
+                  <p className="text-sm" style={{ color: C.brownSoft }}>
+                    {es
+                      ? 'Si fuiste tú, ignora este mensaje. Si no reconoces esta actividad, cambia tu contraseña inmediatamente.'
+                      : "If it was you, ignore this message. If you don't recognize this activity, change your password immediately."}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {signupDone ? (
               // ----- Pantalla "revisa tu correo" -----
               <div

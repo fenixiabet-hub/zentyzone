@@ -3,29 +3,37 @@
  * ------------------------------------------------------------
  * El profesional escribe sus ideas crudas. Zenty puede hacerle
  * preguntas (chat) si falta información, y al final entrega la
- * nota en inglés y español.
+ * nota borrosa pendiente de confirmación.
  *
- * Tambien aplica el limite del plan gratuito: 20 notas de por vida.
+ * Limites plan free:
+ *   - 10 copias/mes (visible)     — gestionadas en /api/confirm-copy
+ *   - 50 generaciones/mes (silent) — gestionadas en /api/generate-note
+ *   - 3 regeneraciones por nota antes de confirmar
+ *
+ * Estado de la nota: 'idle' | 'blurred' | 'confirmed'
+ * Una sola variable — sin riesgo de flash entre estados.
  * ------------------------------------------------------------
  */
 import { useState, useEffect } from 'react';
-import { FileText, Sparkles, ArrowRight, Copy, Check, Shield, X, Send } from 'lucide-react';
+import { FileText, Sparkles, ArrowRight, Copy, Check, Shield, X, Send, RotateCcw } from 'lucide-react';
 import { C } from '../theme';
 import { t, type Lang } from '../translations';
 import { sendToZenty, type ZentyMessage } from '../lib/claude';
 import { supabase } from '../lib/supabase';
 import type { NoteType } from '../prompts/zenty-system-prompt';
-import { UpgradeModal } from './UpgradeModal';
+import { LimitReachedScreen } from './LimitReachedScreen';
 
-// Tipo de nota fijo por ahora: RBT Daily.
+// ── Constantes ───────────────────────────────────────────────
 const NOTE_TYPE: NoteType = 'rbt_daily';
+const COPY_LIMIT  = 10;  // copias/mes — visible al usuario
+const REGEN_LIMIT = 3;   // regeneraciones por nota
 
-// Limite de notas del plan gratuito (de por vida).
-const FREE_NOTE_LIMIT = 20;
-
-// Colores para el estado de error (no estan en la paleta principal).
+// ── Colores de error ─────────────────────────────────────────
 const ERROR_BG = '#fbeae5';
 const ERROR_FG = '#b4412e';
+
+// ── Tipo de estado de la nota ────────────────────────────────
+type NoteState = 'idle' | 'blurred' | 'confirmed';
 
 interface NoteGeneratorProps {
   lang: Lang;
@@ -34,107 +42,97 @@ interface NoteGeneratorProps {
 }
 
 export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGeneratorProps) {
-  const L = t[lang];
+  const L  = t[lang];
   const es = lang === 'es';
 
-  // --- Formulario de la sesion ---
-  const [sessionInfo, setSessionInfo] = useState(initialSessionInfo);
-  const [clientInitials, setClientInitials] = useState('');
-  const [sessionDate, setSessionDate] = useState(
-    new Date().toISOString().split('T')[0],
-  );
-  const [sessionDuration, setSessionDuration] = useState('');
+  // ── Formulario ───────────────────────────────────────────────
+  const [sessionInfo, setSessionInfo]           = useState(initialSessionInfo);
+  const [clientInitials, setClientInitials]     = useState('');
+  const [sessionDate, setSessionDate]           = useState(new Date().toISOString().split('T')[0]);
+  const [sessionDuration, setSessionDuration]   = useState('');
 
-  // --- Conversacion con Zenty ---
-  const [chat, setChat] = useState<ZentyMessage[]>([]);
-  const [note, setNote] = useState('');
-  const [answerText, setAnswerText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [copied, setCopied] = useState(false);
+  // ── Conversación y nota ──────────────────────────────────────
+  const [chat, setChat]                         = useState<ZentyMessage[]>([]);
+  const [generatedNote, setGeneratedNote]       = useState('');
+  const [noteState, setNoteState]               = useState<NoteState>('idle');
+  const [answerText, setAnswerText]             = useState('');
+  const [isLoading, setIsLoading]               = useState(false);
+  const [errorMsg, setErrorMsg]                 = useState('');
+  const [copied, setCopied]                     = useState(false);
 
-  // --- Plan del usuario ---
-  const [plan, setPlan] = useState<'free' | 'pro'>('free');
-  const [notesCount, setNotesCount] = useState(0);
-  const [profileLoaded, setProfileLoaded] = useState(false);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  // ── Confirmación y regeneración ──────────────────────────────
+  const [regenerationsLeft, setRegenerationsLeft] = useState(REGEN_LIMIT);
+  const [confirmLoading, setConfirmLoading]       = useState(false);
 
-  // Carga el perfil del usuario al montar.
+  // ── Plan y cuotas ────────────────────────────────────────────
+  const [plan, setPlan]                         = useState<'free' | 'pro'>('free');
+  const [copiesThisMonth, setCopiesThisMonth]   = useState(0);
+  const [profileLoaded, setProfileLoaded]       = useState(false);
+
+  // ── Límite mensual ───────────────────────────────────────────
+  const [limitReached, setLimitReached]         = useState(false);
+  const [nextReset, setNextReset]               = useState('');
+
+  // Carga el perfil al montar.
   useEffect(() => {
-    // Sin un userId valido no consultamos (evita peticiones "undefined").
     if (!userId) return;
     let active = true;
     supabase
       .from('profiles')
-      .select('subscription_status, notes_generated_count')
+      .select('subscription_status, copies_this_month')
       .eq('id', userId)
       .single()
       .then(({ data, error }) => {
         if (!active) return;
         if (data && !error) {
-          setPlan(data.subscription_status === 'pro' ? 'pro' : 'free');
-          setNotesCount(
-            typeof data.notes_generated_count === 'number'
-              ? data.notes_generated_count
-              : 0,
-          );
+          const isPro = data.subscription_status === 'pro';
+          setPlan(isPro ? 'pro' : 'free');
+          const copies = data.copies_this_month ?? 0;
+          setCopiesThisMonth(copies);
+          if (!isPro && copies >= COPY_LIMIT) setLimitReached(true);
         }
         setProfileLoaded(true);
       });
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [userId]);
 
-  // Guarda la nota en el historial y aumenta el contador.
-  const saveNoteAndIncrement = async (noteText: string) => {
-    try {
-      const durationValue = sessionDuration.trim() ? Number(sessionDuration) : null;
-      await supabase.from('notes').insert({
-        user_id: userId,
-        client_initials: clientInitials.trim() || null,
-        session_date: sessionDate || null,
-        duration_minutes:
-          durationValue !== null && !Number.isNaN(durationValue) ? durationValue : null,
-        note_type: NOTE_TYPE,
-        input_text: sessionInfo.trim(),
-        output_text: noteText,
-      });
-      const newCount = notesCount + 1;
-      const { error } = await supabase
-        .from('profiles')
-        .update({ notes_generated_count: newCount })
-        .eq('id', userId);
-      if (!error) setNotesCount(newCount);
-    } catch {
-      // Si falla guardar el historial no bloqueamos al usuario.
-    }
-  };
-
-  // Envia la conversacion a Zenty y procesa su respuesta.
-  const handleSend = async (messagesToSend: ZentyMessage[]) => {
+  // ── Envía la conversación a Zenty ────────────────────────────
+  const handleSend = async (messagesToSend: ZentyMessage[], isRegen = false) => {
     setChat(messagesToSend);
     setIsLoading(true);
     setErrorMsg('');
-    setNote('');
+    // Limpiar nota anterior: noteState vuelve a 'idle' durante la carga
+    setGeneratedNote('');
+    setNoteState('idle');
+
     try {
+      const sessionId = localStorage.getItem('zenty_session_id') ?? undefined;
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? undefined;
+
       const reply = await sendToZenty({
         messages: messagesToSend,
         noteType: NOTE_TYPE,
         language: lang,
+        sessionId,
+        token,
       });
+
       if (reply.type === 'question') {
         setChat([...messagesToSend, { role: 'assistant', content: reply.content }]);
       } else {
-        setNote(reply.content);
-        await saveNoteAndIncrement(reply.content);
+        // Ambos en el mismo bloque síncrono — React 18+ los batchea,
+        // un solo render, sin frame visible sin blur.
+        setGeneratedNote(reply.content);
+        setNoteState('blurred');
+        if (!isRegen) setRegenerationsLeft(REGEN_LIMIT);
       }
     } catch (err) {
       setErrorMsg(
         err instanceof Error
           ? err.message
           : es
-            ? 'Algo salio mal. Intentalo de nuevo.'
+            ? 'Algo salió mal. Inténtalo de nuevo.'
             : 'Something went wrong. Please try again.',
       );
     } finally {
@@ -142,28 +140,87 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
     }
   };
 
-  // Boton "Darle forma": inicia la conversacion.
+  // ── Botón "Aceptar y copiar" ─────────────────────────────────
+  const handleAcceptAndCopy = async () => {
+    if (noteState !== 'blurred' || confirmLoading) return;
+    setConfirmLoading(true);
+    try {
+      const sessionId = localStorage.getItem('zenty_session_id') ?? undefined;
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+
+      const res = await fetch('/api/confirm-copy', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ sessionId, noteContent: generatedNote, noteType: NOTE_TYPE }),
+      });
+      const data: {
+        limitReached?: boolean; nextReset?: string;
+        success?: boolean; copiesUsed?: number; error?: string;
+      } = await res.json().catch(() => ({}));
+
+      if (data.limitReached) {
+        setLimitReached(true);
+        setNextReset(data.nextReset ?? '');
+        return;
+      }
+      if (data.success) {
+        try { await navigator.clipboard.writeText(generatedNote); }
+        catch {
+          const ta = document.createElement('textarea');
+          ta.value = generatedNote;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          document.body.removeChild(ta);
+        }
+        setNoteState('confirmed'); // un solo setState — sin flash posible
+        setCopied(true);
+        if (typeof data.copiesUsed === 'number') setCopiesThisMonth(data.copiesUsed);
+        setTimeout(() => setCopied(false), 2500);
+      } else {
+        setErrorMsg(data.error ?? (es ? 'No se pudo confirmar.' : 'Could not confirm.'));
+      }
+    } catch {
+      setErrorMsg(
+        es ? 'Error de conexión. Inténtalo de nuevo.' : 'Connection error. Please try again.',
+      );
+    } finally {
+      setConfirmLoading(false);
+    }
+  };
+
+  // ── Botón "Regenerar" ────────────────────────────────────────
+  const handleRegenerate = async () => {
+    if (regenerationsLeft <= 0 || isLoading || confirmLoading) return;
+    setRegenerationsLeft((r) => r - 1);
+    await handleSend(chat, true); // isRegen=true: mantiene el contador decrementado
+  };
+
+  // ── Botón "Darle forma" ──────────────────────────────────────
   const handleStart = async () => {
     if (!sessionInfo.trim() || isLoading) return;
-    if (plan === 'free' && notesCount >= FREE_NOTE_LIMIT) {
-      setShowUpgradeModal(true);
+    if (plan === 'free' && copiesThisMonth >= COPY_LIMIT) {
+      const now = new Date();
+      const nr  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+      setNextReset(nr.toISOString().slice(0, 10));
+      setLimitReached(true);
       return;
     }
+    setLimitReached(false);
     const metaParts: string[] = [];
-    if (clientInitials.trim()) metaParts.push(`Client initials: ${clientInitials.trim()}`);
-    if (sessionDate) metaParts.push(`Session date: ${sessionDate}`);
-    if (sessionDuration.trim()) {
-      metaParts.push(`Duration: ${sessionDuration.trim()} minutes`);
-    }
+    if (clientInitials.trim())  metaParts.push(`Client initials: ${clientInitials.trim()}`);
+    if (sessionDate)             metaParts.push(`Session date: ${sessionDate}`);
+    if (sessionDuration.trim())  metaParts.push(`Duration: ${sessionDuration.trim()} minutes`);
     const meta = metaParts.length > 0 ? `${metaParts.join('\n')}\n\n` : '';
-    const firstMessage: ZentyMessage = {
-      role: 'user',
-      content: meta + sessionInfo.trim(),
-    };
+    const firstMessage: ZentyMessage = { role: 'user', content: meta + sessionInfo.trim() };
     await handleSend([firstMessage]);
   };
 
-  // Boton "Enviar": responde una pregunta de Zenty.
+  // ── Botón "Responder a Zenty" ────────────────────────────────
   const handleAnswer = async () => {
     if (!answerText.trim() || isLoading) return;
     const newMessages: ZentyMessage[] = [
@@ -174,24 +231,28 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
     await handleSend(newMessages);
   };
 
-  // Boton "Empezar otra nota": limpia todo.
+  // ── Botón "Empezar otra nota" ────────────────────────────────
   const handleReset = () => {
     setChat([]);
-    setNote('');
+    setGeneratedNote('');
+    setNoteState('idle');
     setErrorMsg('');
     setAnswerText('');
     setSessionInfo('');
+    setRegenerationsLeft(REGEN_LIMIT);
+    // limitReached y copiesThisMonth NO se resetean — reflejan estado real del servidor
   };
 
-  const handleCopy = async () => {
-    if (!note) return;
+  // ── Copia manual (header, después de confirmar) ──────────────
+  const handleCopyAgain = async () => {
+    if (!generatedNote) return;
     try {
-      await navigator.clipboard.writeText(note);
+      await navigator.clipboard.writeText(generatedNote);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
       const ta = document.createElement('textarea');
-      ta.value = note;
+      ta.value = generatedNote;
       document.body.appendChild(ta);
       ta.select();
       document.execCommand('copy');
@@ -201,16 +262,19 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
     }
   };
 
-  const notesLeft = Math.max(0, FREE_NOTE_LIMIT - notesCount);
-  const conversationActive = chat.length > 0 || note !== '';
-  const lastMessage = chat[chat.length - 1];
-  const awaitingAnswer =
-    !isLoading && !note && chat.length > 0 && lastMessage?.role === 'assistant';
+  // ── Valores derivados ────────────────────────────────────────
+  const copiesLeft         = Math.max(0, COPY_LIMIT - copiesThisMonth);
+  const conversationActive = chat.length > 0 || noteState !== 'idle';
+  const lastMessage        = chat[chat.length - 1];
+  const awaitingAnswer     =
+    !isLoading && noteState === 'idle' && chat.length > 0 && lastMessage?.role === 'assistant';
 
+  // ═══════════════════════════════════════════════════════════════
   return (
     <>
       <div className="grid lg:grid-cols-2 gap-5 lg:gap-6">
-        {/* ===== Panel de entrada ===== */}
+
+        {/* ═════════ Panel de entrada ═════════ */}
         <section
           className="rounded-[2rem] overflow-hidden flex flex-col"
           style={{ background: 'white', boxShadow: `0 4px 20px ${C.mustardDark}10` }}
@@ -249,20 +313,9 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                   placeholder="J.D."
                   maxLength={6}
                   className="w-full px-3 py-2.5 rounded-2xl focus:outline-none transition-all"
-                  style={{
-                    background: C.cream,
-                    border: '1.5px solid transparent',
-                    color: C.brown,
-                    fontWeight: 500,
-                  }}
-                  onFocus={(e) => {
-                    e.target.style.background = 'white';
-                    e.target.style.borderColor = C.mustard;
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.background = C.cream;
-                    e.target.style.borderColor = 'transparent';
-                  }}
+                  style={{ background: C.cream, border: '1.5px solid transparent', color: C.brown, fontWeight: 500 }}
+                  onFocus={(e) => { e.target.style.background = 'white'; e.target.style.borderColor = C.mustard; }}
+                  onBlur={(e)  => { e.target.style.background = C.cream;  e.target.style.borderColor = 'transparent'; }}
                 />
               </div>
               <div>
@@ -279,14 +332,8 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                   placeholder="120"
                   className="w-full px-3 py-2.5 rounded-2xl focus:outline-none transition-all"
                   style={{ background: C.cream, border: '1.5px solid transparent', color: C.brown }}
-                  onFocus={(e) => {
-                    e.target.style.background = 'white';
-                    e.target.style.borderColor = C.mustard;
-                  }}
-                  onBlur={(e) => {
-                    e.target.style.background = C.cream;
-                    e.target.style.borderColor = 'transparent';
-                  }}
+                  onFocus={(e) => { e.target.style.background = 'white'; e.target.style.borderColor = C.mustard; }}
+                  onBlur={(e)  => { e.target.style.background = C.cream;  e.target.style.borderColor = 'transparent'; }}
                 />
               </div>
             </div>
@@ -304,14 +351,8 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                 onChange={(e) => setSessionDate(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-2xl focus:outline-none transition-all"
                 style={{ background: C.cream, border: '1.5px solid transparent', color: C.brown }}
-                onFocus={(e) => {
-                  e.target.style.background = 'white';
-                  e.target.style.borderColor = C.mustard;
-                }}
-                onBlur={(e) => {
-                  e.target.style.background = C.cream;
-                  e.target.style.borderColor = 'transparent';
-                }}
+                onFocus={(e) => { e.target.style.background = 'white'; e.target.style.borderColor = C.mustard; }}
+                onBlur={(e)  => { e.target.style.background = C.cream;  e.target.style.borderColor = 'transparent'; }}
               />
             </div>
 
@@ -334,14 +375,8 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                   color: C.brown,
                   fontFamily: "'DM Sans', sans-serif",
                 }}
-                onFocus={(e) => {
-                  e.target.style.background = 'white';
-                  e.target.style.borderColor = C.mustard;
-                }}
-                onBlur={(e) => {
-                  e.target.style.background = C.cream;
-                  e.target.style.borderColor = 'transparent';
-                }}
+                onFocus={(e) => { e.target.style.background = 'white'; e.target.style.borderColor = C.mustard; }}
+                onBlur={(e)  => { e.target.style.background = C.cream;  e.target.style.borderColor = 'transparent'; }}
               />
             </div>
 
@@ -370,26 +405,26 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
               )}
             </button>
 
-            {/* Indicador de uso del plan */}
+            {/* Indicador de uso mensual */}
             {profileLoaded && plan === 'free' && (
-              <p className="text-center text-xs" style={{ color: C.brownLight }}>
+              <p
+                className="text-center text-xs"
+                style={{ color: copiesLeft === 0 ? ERROR_FG : C.brownLight }}
+              >
                 {es
-                  ? `Te quedan ${notesLeft} de ${FREE_NOTE_LIMIT} notas gratis`
-                  : `${notesLeft} of ${FREE_NOTE_LIMIT} free notes left`}
+                  ? `${copiesLeft} de ${COPY_LIMIT} copias disponibles este mes`
+                  : `${copiesLeft} of ${COPY_LIMIT} copies available this month`}
               </p>
             )}
             {profileLoaded && plan === 'pro' && (
-              <p
-                className="text-center text-xs"
-                style={{ color: C.mustardDark, fontWeight: 600 }}
-              >
+              <p className="text-center text-xs" style={{ color: C.mustardDark, fontWeight: 600 }}>
                 {es ? 'Plan Pro · notas ilimitadas' : 'Pro plan · unlimited notes'}
               </p>
             )}
           </div>
         </section>
 
-        {/* ===== Panel de Zenty (chat + nota) ===== */}
+        {/* ═════════ Panel de Zenty ═════════ */}
         <section
           className="rounded-[2rem] overflow-hidden flex flex-col"
           style={{ background: 'white', boxShadow: `0 4px 20px ${C.mustardDark}10` }}
@@ -404,18 +439,14 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                 {L.generatedNote}
               </h2>
             </div>
-            {note && !isLoading && (
+            {/* Botón copiar del header: solo visible cuando la nota fue confirmada */}
+            {generatedNote && noteState === 'confirmed' && !isLoading && (
               <button
-                onClick={handleCopy}
+                onClick={handleCopyAgain}
                 className="flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs transition-all"
                 style={
                   copied
-                    ? {
-                        background: C.oliveSoft,
-                        color: '#3d4a2e',
-                        border: `1px solid ${C.olive}`,
-                        fontWeight: 600,
-                      }
+                    ? { background: C.oliveSoft, color: '#3d4a2e', border: `1px solid ${C.olive}`, fontWeight: 600 }
                     : { background: C.brown, color: C.cream, fontWeight: 600 }
                 }
               >
@@ -435,36 +466,113 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
           </div>
 
           <div className="flex-1 p-6 min-h-[400px] flex flex-col">
-            {note && !isLoading ? (
-              /* ----- Nota final lista ----- */
-              <div className="flex-1">
-                <pre
-                  className="whitespace-pre-wrap text-sm leading-relaxed p-5 rounded-2xl"
+
+            {/* ── Límite alcanzado ── */}
+            {limitReached && noteState === 'idle' ? (
+              <LimitReachedScreen lang={lang} nextReset={nextReset} />
+
+            ) : generatedNote && !isLoading ? (
+              /* ── Nota generada: columna — scroll arriba, botones abajo ── */
+              <div className="flex flex-col gap-4">
+
+                {/* Nota scrolleable — altura máxima 60vh */}
+                <div
                   style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    background: C.cream,
-                    color: C.brown,
+                    maxHeight: '60vh',
+                    overflowY: 'auto',
+                    borderRadius: '1rem',
                     border: `1px solid ${C.creamWarm}`,
+                    background: C.cream,
                   }}
                 >
-                  {note}
-                </pre>
-                <div
-                  className="mt-4 flex flex-wrap items-center gap-2 text-xs"
-                  style={{ color: C.brownSoft }}
-                >
-                  <span
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full"
-                    style={{ background: C.oliveSoft, color: '#3d4a2e', fontWeight: 600 }}
+                  <pre
+                    style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: '0.875rem',
+                      lineHeight: 1.6,
+                      padding: '1.25rem',
+                      color: C.brown,
+                      whiteSpace: 'pre-wrap',
+                      filter:        noteState === 'blurred' ? 'blur(8px)' : 'none',
+                      userSelect:    noteState === 'blurred' ? 'none'       : 'text',
+                      pointerEvents: noteState === 'blurred' ? 'none'       : 'auto',
+                      transition: 'filter 0.3s ease',
+                    }}
                   >
-                    <Check className="w-3 h-3" strokeWidth={2.5} />
-                    {L.noteReady}
-                  </span>
-                  <span>{L.noteReview}</span>
+                    {generatedNote}
+                  </pre>
                 </div>
+
+                {/* ── Barra de acción — hermana del scroll, NUNCA dentro ── */}
+                {noteState === 'blurred' && (
+                  <div
+                    className="rounded-2xl p-4 flex flex-col gap-3"
+                    style={{ background: C.mustardSoft, border: `1.5px solid ${C.mustard}` }}
+                  >
+                    <p className="text-xs font-semibold text-center" style={{ color: C.mustardDark }}>
+                      {es ? '¿Todo bien? Confírmala para copiarla.' : 'Looks good? Confirm to copy it.'}
+                    </p>
+
+                    {/* Botón principal */}
+                    <button
+                      onClick={handleAcceptAndCopy}
+                      disabled={confirmLoading}
+                      className="w-full flex items-center justify-center gap-2 py-3 rounded-full text-sm font-bold transition-all hover:shadow-lg hover:scale-[1.01] disabled:opacity-60 disabled:cursor-not-allowed"
+                      style={{ background: C.brown, color: C.cream }}
+                    >
+                      {confirmLoading ? (
+                        <>
+                          <div
+                            className="w-4 h-4 border-2 rounded-full animate-spin"
+                            style={{ borderColor: C.cream, borderTopColor: 'transparent' }}
+                          />
+                          {es ? 'Procesando...' : 'Processing...'}
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-4 h-4" strokeWidth={2.5} />
+                          {es ? 'Aceptar y copiar' : 'Accept and copy'}
+                        </>
+                      )}
+                    </button>
+
+                    {/* Botón secundario — desaparece al llegar a 0 */}
+                    {regenerationsLeft > 0 && (
+                      <button
+                        onClick={handleRegenerate}
+                        disabled={isLoading || confirmLoading}
+                        className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-full text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        style={{ border: `1.5px solid ${C.mustard}`, color: C.mustardDark, background: 'white' }}
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" />
+                        {es
+                          ? `Regenerar (${regenerationsLeft} restante${regenerationsLeft === 1 ? '' : 's'})`
+                          : `Regenerate (${regenerationsLeft} left)`}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Badge "Nota lista" — solo después de confirmar */}
+                {noteState === 'confirmed' && (
+                  <div
+                    className="flex flex-wrap items-center gap-2 text-xs"
+                    style={{ color: C.brownSoft }}
+                  >
+                    <span
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full"
+                      style={{ background: C.oliveSoft, color: '#3d4a2e', fontWeight: 600 }}
+                    >
+                      <Check className="w-3 h-3" strokeWidth={2.5} />
+                      {L.noteReady}
+                    </span>
+                    <span>{L.noteReview}</span>
+                  </div>
+                )}
               </div>
+
             ) : errorMsg && !isLoading ? (
-              /* ----- Error ----- */
+              /* ── Error ── */
               <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
                 <div
                   className="w-16 h-16 rounded-3xl flex items-center justify-center mb-6"
@@ -475,12 +583,11 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                 <h3 className="mb-2 text-xl" style={{ fontWeight: 700, color: C.brown }}>
                   {es ? 'No se pudo generar' : 'Could not generate'}
                 </h3>
-                <p className="text-sm max-w-xs" style={{ color: C.brownSoft }}>
-                  {errorMsg}
-                </p>
+                <p className="text-sm max-w-xs" style={{ color: C.brownSoft }}>{errorMsg}</p>
               </div>
+
             ) : chat.length === 0 && !isLoading ? (
-              /* ----- Estado vacio ----- */
+              /* ── Estado vacío ── */
               <div className="flex-1 flex flex-col items-center justify-center text-center py-12">
                 <div
                   className="w-16 h-16 rounded-3xl flex items-center justify-center mb-6"
@@ -509,31 +616,27 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                   {L.breathe}
                 </div>
               </div>
+
             ) : (
-              /* ----- Conversacion con Zenty ----- */
+              /* ── Conversación con Zenty ── */
               <div className="flex-1 flex flex-col">
-                <div
-                  className="space-y-3 overflow-y-auto"
-                  style={{ maxHeight: 440 }}
-                >
+                <div className="space-y-3 overflow-y-auto" style={{ maxHeight: 440 }}>
                   {chat.slice(1).map((m, i) => (
                     <div
                       key={i}
-                      className={`flex ${
-                        m.role === 'assistant' ? 'justify-start' : 'justify-end'
-                      }`}
+                      className={`flex ${m.role === 'assistant' ? 'justify-start' : 'justify-end'}`}
                     >
                       <div
                         className="max-w-[88%] rounded-2xl px-4 py-3"
                         style={{
                           background: m.role === 'assistant' ? C.creamWarm : C.brown,
-                          color: m.role === 'assistant' ? C.brown : C.cream,
+                          color:      m.role === 'assistant' ? C.brown     : C.cream,
                         }}
                       >
                         <div
                           className="text-[10px] uppercase tracking-wider mb-1"
                           style={{
-                            color: m.role === 'assistant' ? C.mustardDark : C.creamWarm,
+                            color:      m.role === 'assistant' ? C.mustardDark : C.creamWarm,
                             fontWeight: 700,
                           }}
                         >
@@ -554,11 +657,8 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                       >
                         <div
                           className="w-4 h-4 border-2 rounded-full animate-spin"
-                          style={{
-                            borderColor: C.mustardDark,
-                            borderTopColor: 'transparent',
-                          }}
-                        ></div>
+                          style={{ borderColor: C.mustardDark, borderTopColor: 'transparent' }}
+                        />
                         <span className="text-sm" style={{ color: C.brownSoft }}>
                           {es ? 'Zenty está pensando...' : 'Zenty is thinking...'}
                         </span>
@@ -584,7 +684,7 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                         fontFamily: "'DM Sans', sans-serif",
                       }}
                       onFocus={(e) => (e.target.style.borderColor = C.mustard)}
-                      onBlur={(e) => (e.target.style.borderColor = C.creamWarm)}
+                      onBlur={(e)  => (e.target.style.borderColor = C.creamWarm)}
                     />
                     <button
                       onClick={handleAnswer}
@@ -603,7 +703,7 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
         </section>
       </div>
 
-      {/* Privacy reminder */}
+      {/* Recordatorio de privacidad */}
       <div
         className="mt-6 rounded-[2rem] p-5 flex items-start gap-3"
         style={{ background: C.mustardSoft, border: `1px solid ${C.mustard}` }}
@@ -619,11 +719,6 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
           <span style={{ opacity: 0.85 }}>{L.privacyDesc}</span>
         </div>
       </div>
-
-      {/* Modal de upgrade (aparece al llegar al limite del plan free) */}
-      {showUpgradeModal && (
-        <UpgradeModal lang={lang} onClose={() => setShowUpgradeModal(false)} />
-      )}
     </>
   );
 }

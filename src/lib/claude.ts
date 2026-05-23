@@ -31,6 +31,10 @@ export interface SendToZentyParams {
   noteType: NoteType;
   /** El idioma del profesional: 'es' | 'en'. */
   language: Language;
+  /** UUID de la sesion activa (localStorage). Necesario para validar cuotas. */
+  sessionId?: string;
+  /** JWT de Supabase para autenticacion en el servidor. */
+  token?: string;
 }
 
 /**
@@ -38,12 +42,17 @@ export interface SendToZentyParams {
  * Lanza un Error con un mensaje claro si algo falla.
  */
 export async function sendToZenty(params: SendToZentyParams): Promise<ZentyReply> {
+  const { token, ...bodyParams } = params;
+
   let response: Response;
   try {
     response = await fetch('/api/generate-note', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(bodyParams),
     });
   } catch {
     throw new Error(

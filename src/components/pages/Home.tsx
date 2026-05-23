@@ -10,7 +10,7 @@ import { C } from '../../theme';
 import { tm } from '../../translations/menu';
 import type { Lang } from '../../translations';
 
-const FREE_NOTE_LIMIT = 20;
+const COPY_LIMIT = 10; // copias/mes — limite visible del plan free
 
 interface HomeProps {
   lang: Lang;
@@ -38,9 +38,9 @@ export function Home({ lang, userId, userName }: HomeProps) {
   const M = tm[lang];
   const es = lang === 'es';
 
-  const [plan, setPlan]             = useState<'free' | 'pro'>('free');
-  const [notesCount, setNotesCount] = useState(0);
-  const [monthCount, setMonthCount] = useState(0);
+  const [plan, setPlan]                       = useState<'free' | 'pro'>('free');
+  const [copiesThisMonth, setCopiesThisMonth] = useState(0);
+  const [monthCount, setMonthCount]           = useState(0);
   const [recentNotes, setRecentNotes] = useState<RecentNote[]>([]);
   const [loading, setLoading]       = useState(true);
 
@@ -53,7 +53,7 @@ export function Home({ lang, userId, userName }: HomeProps) {
 
     Promise.all([
       supabase.from('profiles')
-        .select('subscription_status, notes_generated_count')
+        .select('subscription_status, copies_this_month')
         .eq('id', userId)
         .single(),
       supabase.from('notes')
@@ -69,7 +69,7 @@ export function Home({ lang, userId, userName }: HomeProps) {
       if (!active) return;
       if (profileRes.data) {
         setPlan(profileRes.data.subscription_status === 'pro' ? 'pro' : 'free');
-        setNotesCount(profileRes.data.notes_generated_count ?? 0);
+        setCopiesThisMonth(profileRes.data.copies_this_month ?? 0);
       }
       if (notesRes.data) setRecentNotes(notesRes.data);
       setMonthCount(countRes.count ?? 0);
@@ -79,8 +79,8 @@ export function Home({ lang, userId, userName }: HomeProps) {
     return () => { active = false; };
   }, [userId]);
 
-  const notesLeft    = Math.max(0, FREE_NOTE_LIMIT - notesCount);
-  const minutesSaved = notesCount * 8;
+  const copiesLeft   = Math.max(0, COPY_LIMIT - copiesThisMonth);
+  const minutesSaved = monthCount * 8; // minutos ahorrados ESTE mes
 
   const stats = [
     { label: M.homeStatsNotes,  value: monthCount,   Icon: FileText, bg: C.mustardSoft, color: C.mustardDark },
@@ -92,11 +92,13 @@ export function Home({ lang, userId, userName }: HomeProps) {
       color: plan === 'pro' ? '#3d4a2e' : C.brownSoft,
     },
     {
-      label: plan === 'free' ? M.homeStatsLeft : (es ? 'Notas ilimitadas' : 'Unlimited notes'),
-      value: plan === 'free' ? `${notesLeft}/${FREE_NOTE_LIMIT}` : '∞',
+      label: plan === 'free'
+        ? (es ? 'Copias disponibles' : 'Copies available')
+        : (es ? 'Notas ilimitadas' : 'Unlimited notes'),
+      value: plan === 'free' ? `${copiesLeft}/${COPY_LIMIT}` : '∞',
       Icon: Zap,
-      bg: C.cream,
-      color: C.brown,
+      bg: plan === 'free' && copiesLeft === 0 ? '#fbeae5' : C.cream,
+      color: plan === 'free' && copiesLeft === 0 ? '#b4412e' : C.brown,
     },
     { label: M.homeStatsSaved, value: minutesSaved, Icon: Clock, bg: C.creamSoft, color: C.brownSoft },
   ];
