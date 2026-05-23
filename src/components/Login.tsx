@@ -96,9 +96,12 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
     setLoading(true);
     try {
       if (mode === 'signup') {
+        const siteUrl =
+          (import.meta.env.VITE_SITE_URL as string | undefined) || window.location.origin;
         const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
+          options: { emailRedirectTo: siteUrl },
         });
         if (error) {
           setErrorMsg(authError(error.message, lang));
