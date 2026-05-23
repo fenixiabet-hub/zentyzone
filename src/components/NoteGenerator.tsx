@@ -472,42 +472,14 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
               <LimitReachedScreen lang={lang} nextReset={nextReset} />
 
             ) : generatedNote && !isLoading ? (
-              /* ── Nota generada: columna — scroll arriba, botones abajo ── */
-              <div className="flex flex-col gap-4">
+              /* ── Nota generada ── */
+              <div className="flex flex-col gap-3">
 
-                {/* Nota scrolleable — altura máxima 60vh */}
-                <div
-                  style={{
-                    maxHeight: '60vh',
-                    overflowY: 'auto',
-                    borderRadius: '1rem',
-                    border: `1px solid ${C.creamWarm}`,
-                    background: C.cream,
-                  }}
-                >
-                  <pre
-                    style={{
-                      fontFamily: "'JetBrains Mono', monospace",
-                      fontSize: '0.875rem',
-                      lineHeight: 1.6,
-                      padding: '1.25rem',
-                      color: C.brown,
-                      whiteSpace: 'pre-wrap',
-                      filter:        noteState === 'blurred' ? 'blur(8px)' : 'none',
-                      userSelect:    noteState === 'blurred' ? 'none'       : 'text',
-                      pointerEvents: noteState === 'blurred' ? 'none'       : 'auto',
-                      transition: 'filter 0.3s ease',
-                    }}
-                  >
-                    {generatedNote}
-                  </pre>
-                </div>
-
-                {/* ── Barra de acción — hermana del scroll, NUNCA dentro ── */}
+                {/* ── Barra de acción ENCIMA de la nota — siempre visible ── */}
                 {noteState === 'blurred' && (
                   <div
                     className="rounded-2xl p-4 flex flex-col gap-3"
-                    style={{ background: C.mustardSoft, border: `1.5px solid ${C.mustard}` }}
+                    style={{ background: C.mustardSoft, border: `1.5px solid ${C.mustard}`, flexShrink: 0 }}
                   >
                     <p className="text-xs font-semibold text-center" style={{ color: C.mustardDark }}>
                       {es ? '¿Todo bien? Confírmala para copiarla.' : 'Looks good? Confirm to copy it.'}
@@ -557,7 +529,7 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                 {noteState === 'confirmed' && (
                   <div
                     className="flex flex-wrap items-center gap-2 text-xs"
-                    style={{ color: C.brownSoft }}
+                    style={{ color: C.brownSoft, flexShrink: 0 }}
                   >
                     <span
                       className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full"
@@ -569,6 +541,34 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                     <span>{L.noteReview}</span>
                   </div>
                 )}
+
+                {/* Nota scrolleable — DEBAJO de la barra de acción */}
+                <div
+                  style={{
+                    maxHeight: '55vh',
+                    overflowY: 'auto',
+                    borderRadius: '1rem',
+                    border: `1px solid ${C.creamWarm}`,
+                    background: C.cream,
+                  }}
+                >
+                  <pre
+                    style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: '0.875rem',
+                      lineHeight: 1.6,
+                      padding: '1.25rem',
+                      color: C.brown,
+                      whiteSpace: 'pre-wrap',
+                      filter:        noteState === 'blurred' ? 'blur(8px)' : 'none',
+                      userSelect:    noteState === 'blurred' ? 'none'       : 'text',
+                      pointerEvents: noteState === 'blurred' ? 'none'       : 'auto',
+                      transition: 'filter 0.3s ease',
+                    }}
+                  >
+                    {generatedNote}
+                  </pre>
+                </div>
               </div>
 
             ) : errorMsg && !isLoading ? (
