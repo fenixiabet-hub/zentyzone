@@ -484,6 +484,13 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                     <p className="text-xs font-semibold text-center" style={{ color: C.mustardDark }}>
                       {es ? '¿Todo bien? Confírmala para copiarla.' : 'Looks good? Confirm to copy it.'}
                     </p>
+                    {/* Error inline de confirm-copy */}
+                    {errorMsg && (
+                      <p className="text-xs text-center font-semibold px-2 py-1 rounded-xl"
+                         style={{ background: ERROR_BG, color: ERROR_FG }}>
+                        {errorMsg}
+                      </p>
+                    )}
 
                     {/* Botón principal */}
                     <button
