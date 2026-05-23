@@ -42,9 +42,8 @@ export async function POST(request: Request): Promise<Response> {
 
   const { sessionId, noteContent, noteType } = body;
 
-  if (!sessionId) {
-    return jsonResponse({ error: 'Falta el sessionId.' }, 400);
-  }
+  // sessionId es opcional: usuarios que iniciaron sesion antes del Feature B
+  // no tienen el UUID en localStorage y se saltean la validacion de sesion unica.
   if (!noteContent) {
     return jsonResponse({ error: 'Falta el contenido de la nota.' }, 400);
   }
@@ -87,8 +86,8 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: 'No se pudo verificar tu cuenta.' }, 500);
   }
 
-  // ── 6. Validar sesion unica ──────────────────────────────────────────
-  if (profile.active_session_id && profile.active_session_id !== sessionId) {
+  // ── 6. Validar sesion unica (solo si el cliente envio sessionId) ────────
+  if (sessionId && profile.active_session_id && profile.active_session_id !== sessionId) {
     return jsonResponse({ error: 'Sesion invalida. Vuelve a iniciar sesion.' }, 401);
   }
 

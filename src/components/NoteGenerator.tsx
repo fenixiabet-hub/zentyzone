@@ -560,6 +560,9 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                       padding: '1.25rem',
                       color: C.brown,
                       whiteSpace: 'pre-wrap',
+                      // Sin blur para poder leer, pero sin seleccion hasta confirmar
+                      userSelect:    noteState === 'blurred' ? 'none' : 'text',
+                      pointerEvents: noteState === 'blurred' ? 'none' : 'auto',
                     }}
                   >
                     {generatedNote}
