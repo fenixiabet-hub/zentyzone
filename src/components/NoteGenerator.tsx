@@ -560,10 +560,6 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                       padding: '1.25rem',
                       color: C.brown,
                       whiteSpace: 'pre-wrap',
-                      filter:        noteState === 'blurred' ? 'blur(8px)' : 'none',
-                      userSelect:    noteState === 'blurred' ? 'none'       : 'text',
-                      pointerEvents: noteState === 'blurred' ? 'none'       : 'auto',
-                      transition: 'filter 0.3s ease',
                     }}
                   >
                     {generatedNote}
