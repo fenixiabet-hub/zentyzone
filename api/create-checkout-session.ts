@@ -20,12 +20,13 @@ function jsonResponse(body: unknown, status: number): Response {
 
 export async function POST(request: Request): Promise<Response> {
   // ── 1. Env vars ────────────────────────────────────────────
-  const stripeKey      = process.env.STRIPE_SECRET_KEY;
-  const supabaseUrl    = process.env.VITE_SUPABASE_URL;
-  const supabaseAnon   = process.env.VITE_SUPABASE_ANON_KEY;
-  const siteUrl        = process.env.VITE_SITE_URL || 'https://zentyzone.vercel.app';
+  const stripeKey    = process.env.STRIPE_SECRET_KEY;
+  const supabaseUrl  = process.env.VITE_SUPABASE_URL;
+  const supabaseAnon = process.env.VITE_SUPABASE_ANON_KEY;
+  const siteUrl      = process.env.VITE_SITE_URL || 'https://zentyzone.vercel.app';
 
   if (!stripeKey || !supabaseUrl || !supabaseAnon) {
+    console.error('Missing env vars:', { stripeKey: !!stripeKey, supabaseUrl: !!supabaseUrl, supabaseAnon: !!supabaseAnon });
     return jsonResponse({ error: 'Server configuration missing.' }, 500);
   }
 
@@ -52,39 +53,42 @@ export async function POST(request: Request): Promise<Response> {
   const { data: { user }, error: authErr } = await supabase.auth.getUser();
   if (authErr || !user) return jsonResponse({ error: 'Invalid session.' }, 401);
 
-  // ── 5. Obtener o crear cliente Stripe ──────────────────────
-  const stripe = new Stripe(stripeKey);
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('stripe_customer_id, subscription_status')
-    .eq('id', user.id)
-    .single();
-
-  let customerId = (profile as { stripe_customer_id?: string } | null)?.stripe_customer_id;
-
-  if (!customerId) {
-    const customer = await stripe.customers.create({
-      email: user.email ?? undefined,
-      metadata: { supabase_user_id: user.id },
-    });
-    customerId = customer.id;
-    // Guardar customer_id inmediatamente
-    await supabase
-      .from('profiles')
-      .update({ stripe_customer_id: customerId })
-      .eq('id', user.id);
-  }
-
-  // ── 6. Price ID ────────────────────────────────────────────
+  // ── 5. Price ID ────────────────────────────────────────────
   const priceId = plan === 'plus'
     ? process.env.STRIPE_PRICE_PLUS
     : process.env.STRIPE_PRICE_PRO;
 
-  if (!priceId) return jsonResponse({ error: 'Price not configured.' }, 500);
+  if (!priceId) {
+    console.error('Price ID not configured for plan:', plan);
+    return jsonResponse({ error: 'Price not configured.' }, 500);
+  }
 
-  // ── 7. Crear sesión de Checkout ────────────────────────────
+  // ── 6. Todo lo de Stripe en un solo try-catch ──────────────
   try {
+    const stripe = new Stripe(stripeKey);
+
+    // Obtener o crear cliente Stripe
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('stripe_customer_id')
+      .eq('id', user.id)
+      .single();
+
+    let customerId = (profile as { stripe_customer_id?: string } | null)?.stripe_customer_id;
+
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: user.email ?? undefined,
+        metadata: { supabase_user_id: user.id },
+      });
+      customerId = customer.id;
+      await supabase
+        .from('profiles')
+        .update({ stripe_customer_id: customerId })
+        .eq('id', user.id);
+    }
+
+    // Crear sesión de Checkout
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       payment_method_types: ['card'],
@@ -105,7 +109,8 @@ export async function POST(request: Request): Promise<Response> {
 
     return jsonResponse({ url: session.url }, 200);
   } catch (err) {
-    console.error('Stripe error:', err);
-    return jsonResponse({ error: 'Could not create checkout session.' }, 500);
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('Stripe/Supabase error in checkout:', msg);
+    return jsonResponse({ error: msg || 'Could not create checkout session.' }, 500);
   }
 }
