@@ -12,7 +12,6 @@ import { tm } from '../../translations/menu';
 import { CanceledScreen } from '../CanceledScreen';
 import type { Lang } from '../../translations';
 
-const COPY_LIMIT       = 5;
 const TRIAL_COPY_LIMIT = 10;
 const PLUS_COPY_LIMIT  = 25;
 
@@ -30,6 +29,7 @@ interface Profile {
   trial_ends_at: string | null;
   subscription_current_period_end: string | null;
   payment_failed: boolean;
+  stripe_customer_id: string | null;
 }
 
 export function Billing({ lang, userId }: BillingProps) {
@@ -40,6 +40,7 @@ export function Billing({ lang, userId }: BillingProps) {
   const [loading, setLoading]             = useState(true);
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
   const [checkoutError, setCheckoutError]     = useState('');
+  const [manageLoading, setManageLoading]     = useState(false);
   const [searchParams]                    = useSearchParams();
 
   const checkoutResult = searchParams.get('checkout'); // 'success' | 'canceled'
@@ -50,7 +51,7 @@ export function Billing({ lang, userId }: BillingProps) {
     supabase
       .from('profiles')
       .select(
-        'subscription_status, copies_this_month, notes_generated_count, pro_renewal_date, chosen_plan, trial_ends_at, subscription_current_period_end, payment_failed',
+        'subscription_status, copies_this_month, notes_generated_count, pro_renewal_date, chosen_plan, trial_ends_at, subscription_current_period_end, payment_failed, stripe_customer_id',
       )
       .eq('id', userId)
       .single()
@@ -59,6 +60,33 @@ export function Billing({ lang, userId }: BillingProps) {
         setLoading(false);
       });
   }, [userId]);
+
+  // ── Portal de Stripe (cancelar / cambiar método de pago) ────────────────────
+  const handleManageSubscription = async () => {
+    setManageLoading(true);
+    setCheckoutError('');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const res = await fetch('/api/create-portal-session', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const json = await res.json();
+      if (json.url) {
+        window.location.href = json.url;
+      } else {
+        setCheckoutError(json.error || (es ? 'No se pudo abrir el portal.' : 'Could not open portal.'));
+      }
+    } catch {
+      setCheckoutError(es ? 'No se pudo conectar.' : 'Could not connect.');
+    } finally {
+      setManageLoading(false);
+    }
+  };
 
   // ── Checkout ────────────────────────────────────────────────────────────────
   const startCheckout = async (plan: 'plus' | 'pro') => {
@@ -112,11 +140,12 @@ export function Billing({ lang, userId }: BillingProps) {
     return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
   };
 
-  const nextResetDate = (() => {
+  const _nextResetDate = (() => {
     const now = new Date();
     const d   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
     return d.toLocaleDateString(es ? 'es-US' : 'en-US', { month: 'long', day: 'numeric', timeZone: 'UTC' });
   })();
+  void _nextResetDate; // calculada por si se usa más adelante
 
   if (loading) {
     return (
@@ -127,23 +156,26 @@ export function Billing({ lang, userId }: BillingProps) {
     );
   }
 
-  const status = profile?.subscription_status ?? 'free';
+  const status           = profile?.subscription_status ?? 'canceled';
+  const stripeCustomerId = profile?.stripe_customer_id ?? null;
 
-  // Pantalla dedicada para suscripción cancelada
-  if (status === 'canceled') {
+  // Pantalla de reactivación SOLO si el usuario ya tuvo suscripción antes
+  // (tiene stripe_customer_id). Usuarios nuevos muestran selección de plan.
+  if (status === 'canceled' && stripeCustomerId) {
     return <CanceledScreen lang={lang} userId={userId} />;
   }
 
   const copies          = profile?.copies_this_month   ?? 0;
-  const notesTotal      = profile?.notes_generated_count ?? 0;
+  const _notesTotal     = profile?.notes_generated_count ?? 0;
+  void _notesTotal;
   const trialEndsAt     = profile?.trial_ends_at        ?? null;
   const periodEnd       = profile?.subscription_current_period_end ?? null;
   const chosenPlan      = profile?.chosen_plan          ?? null;
   const trialDaysLeft   = daysUntil(trialEndsAt);
 
-  const copyLimit = status === 'plus' ? PLUS_COPY_LIMIT
+  const copyLimit = status === 'plus'  ? PLUS_COPY_LIMIT
     : status === 'trial' ? TRIAL_COPY_LIMIT
-    : COPY_LIMIT;
+    : 0;
   const copiesLeft = Math.max(0, copyLimit - copies);
   const pct        = Math.min(100, (copies / copyLimit) * 100);
 
@@ -204,37 +236,21 @@ export function Billing({ lang, userId }: BillingProps) {
           {M.billingCurrentPlan}
         </p>
 
-        {/* FREE / CANCELED */}
-        {(status === 'free' || status === 'canceled') && (
-          <>
-            <div className="flex items-center gap-3 mb-6">
-              <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: C.creamWarm }}>
-                <Zap className="w-5 h-5" style={{ color: C.brownSoft }} />
-              </div>
-              <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingFreeDesc}</p>
+        {/* NUEVO USUARIO (canceled sin customer_id) — nunca ha tenido plan */}
+        {status === 'canceled' && !stripeCustomerId && (
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: C.creamWarm }}>
+              <Zap className="w-5 h-5" style={{ color: C.brownSoft }} />
             </div>
             <div>
-              <div className="flex justify-between text-xs mb-2" style={{ color: C.brownSoft }}>
-                <span>{M.billingUsed} {copies} {es ? 'copias' : 'copies'}</span>
-                <span>{copiesLeft} {es ? 'restantes' : 'remaining'}</span>
-              </div>
-              <div className="h-3 rounded-full overflow-hidden" style={{ background: C.creamSoft }}>
-                <div className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${pct}%`, background: barColor }} />
-              </div>
-              <div className="flex justify-between mt-1.5">
-                <p className="text-xs" style={{ color: C.brownLight }}>
-                  {copies}/{COPY_LIMIT} {es ? 'copias este mes' : 'copies this month'}
-                </p>
-                <p className="text-xs" style={{ color: C.brownLight }}>
-                  {es ? `Reinicia el ${nextResetDate}` : `Resets ${nextResetDate}`}
-                </p>
-              </div>
-              <p className="text-xs mt-2" style={{ color: C.brownLight, opacity: 0.7 }}>
-                {es ? `Total generadas: ${notesTotal}` : `Total generated: ${notesTotal}`}
+              <p className="text-lg font-bold" style={{ color: C.brown }}>
+                {es ? 'Sin plan activo' : 'No active plan'}
+              </p>
+              <p className="text-sm" style={{ color: C.brownSoft }}>
+                {es ? 'Elige un plan para empezar.' : 'Choose a plan to get started.'}
               </p>
             </div>
-          </>
+          </div>
         )}
 
         {/* TRIAL */}
@@ -308,10 +324,41 @@ export function Billing({ lang, userId }: BillingProps) {
             </div>
           </div>
         )}
+
+        {/* Botón gestionar suscripción (trial / plus / pro / past_due) */}
+        {(status === 'trial' || status === 'plus' || status === 'pro' || status === 'past_due') && (
+          <div className="mt-5 pt-5" style={{ borderTop: `1px solid ${C.creamSoft}` }}>
+            {checkoutError && (
+              <p className="text-xs mb-3 rounded-xl px-3 py-2"
+                style={{ background: '#fbeae5', color: '#b4412e' }}>{checkoutError}</p>
+            )}
+            <button
+              onClick={handleManageSubscription}
+              disabled={manageLoading}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-full text-sm transition-all hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+              style={{ border: `1.5px solid ${C.creamWarm}`, color: C.brownSoft, fontWeight: 500 }}
+            >
+              {manageLoading ? (
+                <div className="w-4 h-4 border-2 rounded-full animate-spin"
+                  style={{ borderColor: C.brownSoft, borderTopColor: 'transparent' }} />
+              ) : (
+                <>
+                  <CreditCard className="w-4 h-4" />
+                  {es ? 'Gestionar suscripción' : 'Manage subscription'}
+                </>
+              )}
+            </button>
+            <p className="text-xs text-center mt-2" style={{ color: C.brownLight }}>
+              {es
+                ? 'Cancela, cambia método de pago o ve tu historial.'
+                : 'Cancel, update payment method, or view history.'}
+            </p>
+          </div>
+        )}
       </div>
 
-      {/* ── Planes disponibles (free / canceled) ─────────────────────────── */}
-      {(status === 'free' || status === 'canceled') && (
+      {/* ── Planes disponibles (usuario nuevo sin plan activo) ───────────── */}
+      {(status === 'canceled' && !stripeCustomerId) && (
         <>
           {/* Header de la sección */}
           <div className="text-center py-2">
