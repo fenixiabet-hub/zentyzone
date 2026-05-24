@@ -85,14 +85,14 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-const FREE_NOTE_LIMIT = 20;
+// Trial is the entry state, no free tier
 
 export function Sidebar({
   lang,
   setLang,
   userEmail,
   plan,
-  notesCount,
+  notesCount: _notesCount,
   onLogout,
   onClose,
 }: SidebarProps) {
@@ -107,7 +107,6 @@ export function Sidebar({
 
   const isActive = (path: string) => location.pathname === path;
 
-  const notesLeft = Math.max(0, FREE_NOTE_LIMIT - notesCount);
   const userInitial = (userEmail.charAt(0) || 'U').toUpperCase();
 
   return (
@@ -230,9 +229,9 @@ export function Sidebar({
             <p className="text-xs font-medium truncate" style={{ color: C.brown }}>
               {userEmail}
             </p>
-            {plan === 'free' || plan === 'canceled' ? (
-              <p className="text-[11px]" style={{ color: C.brownLight }}>
-                {M.planFree} · {notesLeft}/{FREE_NOTE_LIMIT} {M.notesUsed}
+            {plan === 'canceled' ? (
+              <p className="text-[11px] font-semibold" style={{ color: '#b4412e' }}>
+                Cancelado ✕
               </p>
             ) : plan === 'trial' ? (
               <p className="text-[11px] font-semibold" style={{ color: C.mustardDark }}>

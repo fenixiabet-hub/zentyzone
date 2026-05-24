@@ -116,7 +116,8 @@ export async function POST(request: Request): Promise<Response> {
 
       // ── invoice.paid → plus | pro ──────────────────────────
       case 'invoice.paid': {
-        const invoice = event.data.object as Stripe.Invoice;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const invoice = event.data.object as any;
 
         // Ignorar la factura $0 inicial del trial
         if (!invoice.subscription || invoice.amount_paid === 0) break;
@@ -125,9 +126,10 @@ export async function POST(request: Request): Promise<Response> {
         const subId      = invoice.subscription as string;
 
         const sub        = await stripe.subscriptions.retrieve(subId);
-        const chosenPlan = sub.metadata?.chosen_plan ?? 'plus';
+        const chosenPlan = (sub.metadata?.chosen_plan) ?? 'plus';
         const newStatus  = chosenPlan === 'pro' ? 'pro' : 'plus';
-        const periodEnd  = new Date(sub.current_period_end * 1000).toISOString();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const periodEnd  = new Date(((sub as any).current_period_end as number) * 1000).toISOString();
 
         await updateProfile({
           customer_id:     customerId,

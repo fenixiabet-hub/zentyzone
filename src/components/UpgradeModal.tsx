@@ -48,12 +48,12 @@ export function UpgradeModal({ lang, onClose }: UpgradeModalProps) {
         </div>
 
         <h2 className="text-2xl mb-2" style={{ fontWeight: 700, color: C.brown }}>
-          {es ? 'Llegaste a tu límite gratis' : "You've reached your free limit"}
+          {es ? 'Límite mensual alcanzado' : 'Monthly limit reached'}
         </h2>
         <p className="text-sm mb-6" style={{ color: C.brownSoft }}>
           {es
-            ? 'Usaste tus 20 notas del plan gratuito. Pasa a Pro y genera notas sin límite.'
-            : "You've used all 20 notes on the free plan. Go Pro for unlimited notes."}
+            ? 'Alcanzaste el límite de notas de tu plan este mes. Actualiza para generar sin límite.'
+            : "You've reached your plan's note limit this month. Upgrade for unlimited notes."}
         </p>
 
         <div

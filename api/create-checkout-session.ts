@@ -37,7 +37,8 @@ export async function POST(request: Request): Promise<Response> {
 
   // ── 3. Body ────────────────────────────────────────────────
   let body: { plan?: Plan; origin?: 'onboarding' | 'billing' };
-  try { body = await request.json(); }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  try { body = await request.json() as any; }
   catch { return jsonResponse({ error: 'Invalid JSON.' }, 400); }
 
   const { plan, origin } = body;

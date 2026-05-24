@@ -40,7 +40,8 @@ export async function POST(request: Request): Promise<Response> {
     noteType?: NoteType;
   };
   try {
-    body = await request.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    body = await request.json() as any;
   } catch {
     return jsonResponse({ error: 'La peticion no es un JSON valido.' }, 400);
   }

@@ -138,7 +138,8 @@ export async function POST(request: Request): Promise<Response> {
     sessionId?: string; // UUID guardado en localStorage tras el login
   };
   try {
-    body = await request.json();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    body = await request.json() as any;
   } catch {
     return jsonResponse({ error: 'La peticion no es un JSON valido.' }, 400);
   }
@@ -206,13 +207,20 @@ export async function POST(request: Request): Promise<Response> {
     userId = user.id;
 
     // Leer perfil
+    type ProfileRow = {
+      subscription_status: string | null;
+      active_session_id: string | null;
+      generations_this_month: number | null;
+      last_reset_date: string | null;
+      notes_generated_count: number | null;
+    };
     const { data: profile, error: profileErr } = await supaClient
       .from('profiles')
       .select(
         'subscription_status, active_session_id, generations_this_month, last_reset_date, notes_generated_count',
       )
       .eq('id', userId)
-      .single();
+      .single() as { data: ProfileRow | null; error: unknown };
 
     if (profileErr || !profile) {
       return jsonResponse({ error: 'No se pudo verificar tu cuenta.' }, 500);
@@ -309,10 +317,12 @@ export async function POST(request: Request): Promise<Response> {
           updateData.copies_this_month = 0;
           updateData.last_reset_date = today;
         }
-        await supaClient.from('profiles').update(updateData).eq('id', userId);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supaClient as any).from('profiles').update(updateData).eq('id', userId);
       } else {
         // Plan pro: solo registro historico, sin limite
-        await supaClient
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (supaClient as any)
           .from('profiles')
           .update({ notes_generated_count: notesGeneratedTotal + 1 })
           .eq('id', userId);

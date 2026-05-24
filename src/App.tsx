@@ -63,10 +63,11 @@ function RequireAuth({ session }: { session: Session | null }) {
   return <Outlet />;
 }
 
-// ── Ruta que requiere plan activo: redirige a /onboarding si plan === 'free' ─
+// ── Ruta que requiere plan activo ──────────────────────────────────────────
 function RequirePlan({ plan, profileLoaded }: { plan: PlanStatus; profileLoaded: boolean }) {
   if (!profileLoaded) return <LoadingScreen />;
   if (plan === 'free') return <Navigate to="/onboarding" replace />;
+  if (plan === 'canceled') return <Navigate to="/app/billing" replace />;
   return <Outlet />;
 }
 
@@ -188,9 +189,8 @@ export default function App() {
         }
       />
 
-      {/* Rutas protegidas — además requieren plan activo */}
+      {/* Rutas protegidas — requieren sesión */}
       <Route element={<RequireAuth session={session} />}>
-        <Route element={<RequirePlan plan={plan} profileLoaded={profileLoaded} />}>
         <Route
           path="/app"
           element={
@@ -206,49 +206,39 @@ export default function App() {
             />
           }
         >
-          <Route index element={<Navigate to="home" replace />} />
-          <Route
-            path="home"
-            element={
-              <Home lang={lang} userId={userId} userName={userName} />
-            }
-          />
-          <Route
-            path="new"
-            element={<NewNote lang={lang} userId={userId} />}
-          />
-          <Route
-            path="history"
-            element={<History lang={lang} userId={userId} />}
-          />
-          <Route
-            path="templates"
-            element={<Templates lang={lang} userId={userId} />}
-          />
-          <Route
-            path="clients"
-            element={<Clients lang={lang} userId={userId} />}
-          />
-          <Route path="glossary" element={<Glossary lang={lang} />} />
-          <Route path="tutorial" element={<Tutorial lang={lang} />} />
-          <Route path="faq" element={<FAQ lang={lang} />} />
-          <Route
-            path="account"
-            element={
-              <Account
-                lang={lang}
-                setLang={setLang}
-                userId={userId}
-                userEmail={userEmail}
-                onLogout={handleLogout}
-              />
-            }
-          />
+          {/* Billing: accesible para todos los planes (incluido canceled) */}
           <Route
             path="billing"
             element={<Billing lang={lang} userId={userId} />}
           />
-        </Route>
+
+          {/* Rutas que requieren plan activo (bloquea free y canceled) */}
+          <Route element={<RequirePlan plan={plan} profileLoaded={profileLoaded} />}>
+            <Route index element={<Navigate to="home" replace />} />
+            <Route
+              path="home"
+              element={<Home lang={lang} userId={userId} userName={userName} />}
+            />
+            <Route path="new" element={<NewNote lang={lang} userId={userId} />} />
+            <Route path="history" element={<History lang={lang} userId={userId} />} />
+            <Route path="templates" element={<Templates lang={lang} userId={userId} />} />
+            <Route path="clients" element={<Clients lang={lang} userId={userId} />} />
+            <Route path="glossary" element={<Glossary lang={lang} />} />
+            <Route path="tutorial" element={<Tutorial lang={lang} />} />
+            <Route path="faq" element={<FAQ lang={lang} />} />
+            <Route
+              path="account"
+              element={
+                <Account
+                  lang={lang}
+                  setLang={setLang}
+                  userId={userId}
+                  userEmail={userEmail}
+                  onLogout={handleLogout}
+                />
+              }
+            />
+          </Route>
         </Route>
       </Route>
 

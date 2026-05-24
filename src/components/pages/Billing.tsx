@@ -9,6 +9,7 @@ import { Crown, Zap, Check, CreditCard, ArrowRight, AlertTriangle, Sparkles } fr
 import { supabase } from '../../lib/supabase';
 import { C } from '../../theme';
 import { tm } from '../../translations/menu';
+import { CanceledScreen } from '../CanceledScreen';
 import type { Lang } from '../../translations';
 
 const COPY_LIMIT       = 5;
@@ -126,7 +127,13 @@ export function Billing({ lang, userId }: BillingProps) {
     );
   }
 
-  const status          = profile?.subscription_status ?? 'free';
+  const status = profile?.subscription_status ?? 'free';
+
+  // Pantalla dedicada para suscripción cancelada
+  if (status === 'canceled') {
+    return <CanceledScreen lang={lang} userId={userId} />;
+  }
+
   const copies          = profile?.copies_this_month   ?? 0;
   const notesTotal      = profile?.notes_generated_count ?? 0;
   const trialEndsAt     = profile?.trial_ends_at        ?? null;
