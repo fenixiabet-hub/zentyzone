@@ -66,7 +66,6 @@ function RequireAuth({ session }: { session: Session | null }) {
 // ── Ruta que requiere plan activo ──────────────────────────────────────────
 function RequirePlan({ plan, profileLoaded }: { plan: PlanStatus; profileLoaded: boolean }) {
   if (!profileLoaded) return <LoadingScreen />;
-  if (plan === 'free') return <Navigate to="/onboarding" replace />;
   if (plan === 'canceled') return <Navigate to="/app/billing" replace />;
   return <Outlet />;
 }
@@ -80,7 +79,7 @@ export default function App() {
   const [lang, setLang] = useState<Lang>('es');
 
   // Estado del perfil (para el sidebar)
-  const [plan, setPlan] = useState<PlanStatus>('free');
+  const [plan, setPlan] = useState<PlanStatus>('canceled');
   const [notesCount, setNotesCount] = useState(0);
   const [profileLoaded, setProfileLoaded] = useState(false);
 
@@ -95,7 +94,7 @@ export default function App() {
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       if (!newSession) {
-        setPlan('free');
+        setPlan('canceled');
         setNotesCount(0);
         setProfileLoaded(false);
       }
@@ -117,12 +116,12 @@ export default function App() {
       .single()
       .then(({ data }) => {
         if (data) {
-          const validStatuses: PlanStatus[] = ['free', 'trial', 'plus', 'pro', 'past_due', 'canceled'];
+          const validStatuses: PlanStatus[] = ['trial', 'plus', 'pro', 'past_due', 'canceled'];
           const rawStatus = data.subscription_status as string;
           setPlan(
             validStatuses.includes(rawStatus as PlanStatus)
               ? (rawStatus as PlanStatus)
-              : 'free',
+              : 'canceled',
           );
           setNotesCount(
             typeof data.notes_generated_count === 'number'

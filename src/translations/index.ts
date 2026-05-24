@@ -19,7 +19,7 @@ const es = {
   heroTitle2: 'tiempo libre',
   heroSubtitle:
     'Escribe tus ideas como te salgan. Tu asistente te ayuda a darle forma profesional en segundos. Tú decides qué se queda, tú firmas, tú entregas.',
-  heroCta1: 'Probarlo gratis',
+  heroCta1: 'Probar 5 días gratis',
   heroCta2: 'Ver cómo funciona',
   heroProof1: 'Tú siempre en control',
   heroProof2: 'Sin tarjeta',
@@ -55,8 +55,8 @@ const es = {
   ctaTitle1: 'Lista para tu',
   ctaTitle2: 'nueva rutina',
   ctaSubtitle:
-    'Gratis para empezar. Sin tarjeta. Cancela cuando quieras. Tus primeras 20 sesiones son nuestras.',
-  ctaButton: 'Crear mi cuenta',
+    'Prueba 5 días gratis. Sin tarjeta. Cancela cuando quieras.',
+  ctaButton: 'Probar 5 días gratis',
   ctaSecondary: 'Tengo dudas',
   welcomeBack: 'Bienvenida de vuelta',
   loginTitle1: 'Lista para',
@@ -120,7 +120,7 @@ const en: typeof es = {
   heroTitle2: 'time back',
   heroSubtitle:
     'Type your thoughts however they come out. Your assistant helps you shape them into a polished draft in seconds. You decide what stays. You sign. You submit.',
-  heroCta1: 'Try it free',
+  heroCta1: 'Try 5 days free',
   heroCta2: 'See how it works',
   heroProof1: 'You stay in control',
   heroProof2: 'No credit card',
@@ -156,8 +156,8 @@ const en: typeof es = {
   ctaTitle1: 'Ready for your',
   ctaTitle2: 'new routine',
   ctaSubtitle:
-    'Free to start. No credit card. Cancel anytime. Your first 20 sessions are on us.',
-  ctaButton: 'Create my account',
+    'Try free for 5 days. No credit card. Cancel anytime.',
+  ctaButton: 'Try 5 days free',
   ctaSecondary: 'I have questions',
   welcomeBack: 'Welcome back',
   loginTitle1: 'Ready to',

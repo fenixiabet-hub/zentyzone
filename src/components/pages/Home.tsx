@@ -10,7 +10,24 @@ import { C } from '../../theme';
 import { tm } from '../../translations/menu';
 import type { Lang } from '../../translations';
 
-const COPY_LIMIT = 5; // copias/mes — plan free / canceled
+import type { PlanStatus } from '../layout/AppLayout';
+
+/** Límite mensual de copias según plan. */
+function copyLimitForPlan(p: PlanStatus): number {
+  if (p === 'pro')   return Infinity;
+  if (p === 'plus')  return 25;
+  if (p === 'trial') return 10;
+  return 0;
+}
+
+/** Etiqueta del plan para mostrar en stats. */
+function planLabel(p: PlanStatus): string {
+  if (p === 'pro')      return 'Pro ✦';
+  if (p === 'plus')     return 'Plus ✦';
+  if (p === 'trial')    return 'Trial ✦';
+  if (p === 'past_due') return 'Past Due ⚠';
+  return 'Cancelado';
+}
 
 interface HomeProps {
   lang: Lang;
@@ -38,7 +55,7 @@ export function Home({ lang, userId, userName }: HomeProps) {
   const M = tm[lang];
   const es = lang === 'es';
 
-  const [plan, setPlan]                       = useState<'free' | 'pro'>('free');
+  const [plan, setPlan]                       = useState<PlanStatus>('canceled');
   const [copiesThisMonth, setCopiesThisMonth] = useState(0);
   const [monthCount, setMonthCount]           = useState(0);
   const [recentNotes, setRecentNotes] = useState<RecentNote[]>([]);
@@ -68,7 +85,7 @@ export function Home({ lang, userId, userName }: HomeProps) {
     ]).then(([profileRes, notesRes, countRes]) => {
       if (!active) return;
       if (profileRes.data) {
-        setPlan(profileRes.data.subscription_status === 'pro' ? 'pro' : 'free');
+        setPlan((profileRes.data.subscription_status ?? 'canceled') as PlanStatus);
         setCopiesThisMonth(profileRes.data.copies_this_month ?? 0);
       }
       if (notesRes.data) setRecentNotes(notesRes.data);
@@ -79,26 +96,27 @@ export function Home({ lang, userId, userName }: HomeProps) {
     return () => { active = false; };
   }, [userId]);
 
-  const copiesLeft   = Math.max(0, COPY_LIMIT - copiesThisMonth);
+  const copyLimit  = copyLimitForPlan(plan);
+  const copiesLeft = plan === 'pro' ? Infinity : Math.max(0, copyLimit - copiesThisMonth);
   const minutesSaved = monthCount * 8; // minutos ahorrados ESTE mes
 
   const stats = [
     { label: M.homeStatsNotes,  value: monthCount,   Icon: FileText, bg: C.mustardSoft, color: C.mustardDark },
     {
       label: M.homeStatsPlan,
-      value: plan === 'pro' ? 'Pro ✦' : 'Free',
+      value: planLabel(plan),
       Icon: Star,
-      bg: plan === 'pro' ? C.oliveSoft : C.creamWarm,
-      color: plan === 'pro' ? '#3d4a2e' : C.brownSoft,
+      bg: plan === 'pro' ? C.oliveSoft : C.mustardSoft,
+      color: plan === 'pro' ? '#3d4a2e' : C.mustardDark,
     },
     {
-      label: plan === 'free'
-        ? (es ? 'Copias disponibles' : 'Copies available')
-        : (es ? 'Notas ilimitadas' : 'Unlimited notes'),
-      value: plan === 'free' ? `${copiesLeft}/${COPY_LIMIT}` : '∞',
+      label: plan === 'pro'
+        ? (es ? 'Notas ilimitadas' : 'Unlimited notes')
+        : (es ? 'Copias disponibles' : 'Copies available'),
+      value: plan === 'pro' ? '∞' : `${copiesLeft}/${copyLimit}`,
       Icon: Zap,
-      bg: plan === 'free' && copiesLeft === 0 ? '#fbeae5' : C.cream,
-      color: plan === 'free' && copiesLeft === 0 ? '#b4412e' : C.brown,
+      bg: plan !== 'pro' && copiesLeft === 0 ? '#fbeae5' : C.cream,
+      color: plan !== 'pro' && copiesLeft === 0 ? '#b4412e' : C.brown,
     },
     { label: M.homeStatsSaved, value: minutesSaved, Icon: Clock, bg: C.creamSoft, color: C.brownSoft },
   ];

@@ -16,8 +16,7 @@
  */
 import { createClient } from '@supabase/supabase-js';
 
-/** Limite de copias/mes para usuarios free o canceled. */
-const COPY_LIMIT       = 5;
+// No existe plan free. canceled → 402. Límites activos: trial / plus / pro.
 /** Limite de copias/mes durante el trial (5 dias). */
 const TRIAL_COPY_LIMIT = 10;
 /** Limite de copias/mes para el plan Plus. */
@@ -95,21 +94,28 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Sesion invalida. Vuelve a iniciar sesion.' }, 401);
   }
 
-  const status    = profile.subscription_status ?? 'free';
-  const isPro     = status === 'pro';
-  const isPlus    = status === 'plus';
-  const isTrial   = status === 'trial';
-  const isPastDue = status === 'past_due';
+  const status     = profile.subscription_status ?? 'canceled';
+  const isPro      = status === 'pro';
+  const isPlus     = status === 'plus';
+  const isTrial    = status === 'trial';
+  const isPastDue  = status === 'past_due';
+  const isCanceled = status === 'canceled';
 
-  // Bloquear usuarios con pago fallido
+  // Bloquear usuarios con suscripcion no activa
   if (isPastDue) {
     return jsonResponse(
       { error: 'Hay un problema con tu metodo de pago. Ve a Plan y Pagos para actualizarlo.' },
       402,
     );
   }
+  if (isCanceled) {
+    return jsonResponse(
+      { error: 'Suscripcion cancelada. Ve a Plan y Pagos para reactivarla.' },
+      402,
+    );
+  }
 
-  // ── 7. Reset mensual (todos los planes excepto Pro) ──────────────────
+  // ── 7. Reset mensual (trial y plus) ──────────────────────────────────
   const today        = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
   const currentMonth = today.slice(0, 7);                     // 'YYYY-MM'
   const lastResetMonth = (profile.last_reset_date ?? '').slice(0, 7);
@@ -117,11 +123,11 @@ export async function POST(request: Request): Promise<Response> {
 
   let copiesThisMonth = needsReset ? 0 : (profile.copies_this_month ?? 0);
 
-  // Limite segun plan
-  const effectiveCopyLimit = isPro     ? Infinity
-    : isPlus   ? PLUS_COPY_LIMIT
-    : isTrial  ? TRIAL_COPY_LIMIT
-    : COPY_LIMIT; // free o canceled
+  // Limite segun plan (canceled y past_due ya bloqueados arriba)
+  const effectiveCopyLimit = isPro    ? Infinity
+    : isPlus  ? PLUS_COPY_LIMIT
+    : isTrial ? TRIAL_COPY_LIMIT
+    : 0; // fallback: sin cuota
 
   // ── 8. Verificar cuota ────────────────────────────────────────────────
   if (!isPro && copiesThisMonth >= effectiveCopyLimit) {

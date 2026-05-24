@@ -22,11 +22,19 @@ import { sendToZenty, type ZentyMessage } from '../lib/claude';
 import { supabase } from '../lib/supabase';
 import type { NoteType } from '../prompts/zenty-system-prompt';
 import { LimitReachedScreen } from './LimitReachedScreen';
+import type { PlanStatus } from './layout/AppLayout';
 
 // ── Constantes ───────────────────────────────────────────────
 const NOTE_TYPE: NoteType = 'rbt_daily';
-const COPY_LIMIT  = 5;   // copias/mes — plan free / canceled
 const REGEN_LIMIT = 3;   // regeneraciones por nota
+
+/** Límite mensual de copias según plan. */
+function copyLimitForPlan(p: PlanStatus): number {
+  if (p === 'pro')   return Infinity;
+  if (p === 'plus')  return 25;
+  if (p === 'trial') return 10;
+  return 0; // canceled, past_due — bloqueados en el API
+}
 
 // ── Colores de error ─────────────────────────────────────────
 const ERROR_BG = '#fbeae5';
@@ -65,7 +73,7 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
   const [confirmLoading, setConfirmLoading]       = useState(false);
 
   // ── Plan y cuotas ────────────────────────────────────────────
-  const [plan, setPlan]                         = useState<'free' | 'pro'>('free');
+  const [plan, setPlan]                         = useState<PlanStatus>('canceled');
   const [copiesThisMonth, setCopiesThisMonth]   = useState(0);
   const [profileLoaded, setProfileLoaded]       = useState(false);
 
@@ -85,11 +93,12 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
       .then(({ data, error }) => {
         if (!active) return;
         if (data && !error) {
-          const isPro = data.subscription_status === 'pro';
-          setPlan(isPro ? 'pro' : 'free');
+          const status = (data.subscription_status ?? 'canceled') as PlanStatus;
+          setPlan(status);
           const copies = data.copies_this_month ?? 0;
           setCopiesThisMonth(copies);
-          if (!isPro && copies >= COPY_LIMIT) setLimitReached(true);
+          const limit = copyLimitForPlan(status);
+          if (status !== 'pro' && limit > 0 && copies >= limit) setLimitReached(true);
         }
         setProfileLoaded(true);
       });
@@ -203,7 +212,8 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
   // ── Botón "Darle forma" ──────────────────────────────────────
   const handleStart = async () => {
     if (!sessionInfo.trim() || isLoading) return;
-    if (plan === 'free' && copiesThisMonth >= COPY_LIMIT) {
+    const copyLimit = copyLimitForPlan(plan);
+    if (plan !== 'pro' && copyLimit > 0 && copiesThisMonth >= copyLimit) {
       const now = new Date();
       const nr  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
       setNextReset(nr.toISOString().slice(0, 10));
@@ -263,7 +273,8 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
   };
 
   // ── Valores derivados ────────────────────────────────────────
-  const copiesLeft         = Math.max(0, COPY_LIMIT - copiesThisMonth);
+  const copyLimit  = copyLimitForPlan(plan);
+  const copiesLeft = plan === 'pro' ? Infinity : Math.max(0, copyLimit - copiesThisMonth);
   const conversationActive = chat.length > 0 || noteState !== 'idle';
   const lastMessage        = chat[chat.length - 1];
   const awaitingAnswer     =
@@ -406,14 +417,14 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
             </button>
 
             {/* Indicador de uso mensual */}
-            {profileLoaded && plan === 'free' && (
+            {profileLoaded && plan !== 'pro' && copyLimit > 0 && (
               <p
                 className="text-center text-xs"
                 style={{ color: copiesLeft === 0 ? ERROR_FG : C.brownLight }}
               >
                 {es
-                  ? `${copiesLeft} de ${COPY_LIMIT} copias disponibles este mes`
-                  : `${copiesLeft} of ${COPY_LIMIT} copies available this month`}
+                  ? `${copiesLeft} de ${copyLimit} copias disponibles este mes`
+                  : `${copiesLeft} of ${copyLimit} copies available this month`}
               </p>
             )}
             {profileLoaded && plan === 'pro' && (

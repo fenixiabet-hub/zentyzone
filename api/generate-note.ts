@@ -25,12 +25,6 @@ import { createClient } from '@supabase/supabase-js';
 const CLAUDE_MODEL = 'claude-sonnet-4-6';
 // Maximo de tokens: alto porque la nota viene en 2 idiomas.
 const MAX_TOKENS = 8000;
-// Limite silencioso de generaciones por mes (plan free / canceled).
-const SILENT_GEN_LIMIT = 10;
-// Limite silencioso de generaciones por mes (plan trial).
-const TRIAL_GEN_LIMIT = 20;
-// Limite silencioso de generaciones por mes (plan plus).
-const PLUS_GEN_LIMIT = 50;
 
 type NoteType = 'rbt_daily' | 'soap' | 'bcba_progress';
 type Language = 'es' | 'en';
@@ -181,9 +175,7 @@ export async function POST(request: Request): Promise<Response> {
   let supaClient: SupaClient | null = null;
   let userId: string | null = null;
   let isPro = false;
-  let generationsThisMonth = 0;
   let notesGeneratedTotal = 0;
-  let needsReset = false;
 
   const authHeader = request.headers.get('Authorization');
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -210,15 +202,11 @@ export async function POST(request: Request): Promise<Response> {
     type ProfileRow = {
       subscription_status: string | null;
       active_session_id: string | null;
-      generations_this_month: number | null;
-      last_reset_date: string | null;
       notes_generated_count: number | null;
     };
     const { data: profile, error: profileErr } = await supaClient
       .from('profiles')
-      .select(
-        'subscription_status, active_session_id, generations_this_month, last_reset_date, notes_generated_count',
-      )
+      .select('subscription_status, active_session_id, notes_generated_count')
       .eq('id', userId)
       .single() as { data: ProfileRow | null; error: unknown };
 
@@ -231,42 +219,26 @@ export async function POST(request: Request): Promise<Response> {
       return jsonResponse({ error: 'Sesion invalida. Vuelve a iniciar sesion.' }, 401);
     }
 
-    const status = profile.subscription_status ?? 'free';
+    const status = profile.subscription_status ?? 'canceled';
     isPro = status === 'pro';
-    const isPlus    = status === 'plus';
-    const isTrial   = status === 'trial';
-    const isPastDue = status === 'past_due';
+    const isPastDue  = status === 'past_due';
+    const isCanceled = status === 'canceled';
 
-    // Bloquear usuarios con pago fallido
+    // Bloquear usuarios con suscripcion no activa
     if (isPastDue) {
       return jsonResponse(
         { error: 'Hay un problema con tu metodo de pago. Ve a Plan y Pagos para actualizarlo.' },
         402,
       );
     }
-
-    generationsThisMonth = profile.generations_this_month ?? 0;
-    notesGeneratedTotal = profile.notes_generated_count ?? 0;
-
-    if (!isPro) {
-      // Determinar si corresponde un reset mensual
-      const currentMonth = new Date().toISOString().slice(0, 7); // 'YYYY-MM'
-      const lastResetMonth = (profile.last_reset_date ?? '').slice(0, 7);
-      needsReset = currentMonth !== lastResetMonth;
-
-      const effectiveGenerations = needsReset ? 0 : generationsThisMonth;
-
-      // Elegir limite segun plan
-      const genLimit = isPlus ? PLUS_GEN_LIMIT : isTrial ? TRIAL_GEN_LIMIT : SILENT_GEN_LIMIT;
-
-      // Limite silencioso: no revelar el numero al usuario
-      if (effectiveGenerations >= genLimit) {
-        return jsonResponse(
-          { error: 'No se pudo generar la nota. Intentalo de nuevo.' },
-          500,
-        );
-      }
+    if (isCanceled) {
+      return jsonResponse(
+        { error: 'Suscripcion cancelada. Ve a Plan y Pagos para reactivarla.' },
+        402,
+      );
     }
+
+    notesGeneratedTotal = profile.notes_generated_count ?? 0;
   }
 
   // ── 4. Llamar a Claude ───────────────────────────────────────────────
@@ -301,32 +273,14 @@ export async function POST(request: Request): Promise<Response> {
       content = text.replace(/^NOTA:/i, '').trim();
     }
 
-    // ── 6. Incrementar contadores (solo cuando se produce una NOTA) ──
-    // Las preguntas intermedias NO cuentan como generaciones.
+    // ── 6. Incrementar contador historico (solo cuando se produce una NOTA) ──
+    // Las preguntas intermedias NO cuentan.
     if (supaClient && userId && type === 'note') {
-      const today = new Date().toISOString().slice(0, 10); // 'YYYY-MM-DD'
-
-      if (!isPro) {
-        // Plan free: actualizar generations_this_month + reset si toca
-        const newGenCount = needsReset ? 1 : generationsThisMonth + 1;
-        const updateData: Record<string, unknown> = {
-          generations_this_month: newGenCount,
-          notes_generated_count: notesGeneratedTotal + 1,
-        };
-        if (needsReset) {
-          updateData.copies_this_month = 0;
-          updateData.last_reset_date = today;
-        }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supaClient as any).from('profiles').update(updateData).eq('id', userId);
-      } else {
-        // Plan pro: solo registro historico, sin limite
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        await (supaClient as any)
-          .from('profiles')
-          .update({ notes_generated_count: notesGeneratedTotal + 1 })
-          .eq('id', userId);
-      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (supaClient as any)
+        .from('profiles')
+        .update({ notes_generated_count: notesGeneratedTotal + 1 })
+        .eq('id', userId);
     }
 
     return jsonResponse({ type, content }, 200);
