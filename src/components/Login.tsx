@@ -8,7 +8,7 @@
  */
 import { useState, type SyntheticEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { ArrowRight, Mail, Lock, Eye, EyeOff, ShieldAlert } from 'lucide-react';
+import { ArrowRight, ArrowLeft, Mail, Lock, Eye, EyeOff, ShieldAlert } from 'lucide-react';
 import { C } from '../theme';
 import { t, type Lang } from '../translations';
 import { supabase } from '../lib/supabase';
@@ -76,6 +76,8 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
   const [errorMsg, setErrorMsg] = useState('');
   const [signupDone, setSignupDone] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
+  const [forgotView, setForgotView] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
 
   const [searchParams] = useSearchParams();
   const sessionTaken = searchParams.get('reason') === 'session_taken';
@@ -177,6 +179,34 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
     setMode((m) => (m === 'signin' ? 'signup' : 'signin'));
     setErrorMsg('');
     setTermsAccepted(false);
+    setForgotView(false);
+    setForgotSent(false);
+  };
+
+  const handleForgot = async (e?: SyntheticEvent) => {
+    e?.preventDefault();
+    const cleanEmail = email.trim();
+    if (!cleanEmail || loading) return;
+    setErrorMsg('');
+    setLoading(true);
+    try {
+      const siteUrl =
+        (import.meta.env.VITE_SITE_URL as string | undefined) || window.location.origin;
+      const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
+        redirectTo: `${siteUrl}/reset-password`,
+      });
+      if (error) {
+        setErrorMsg(authError(error.message, lang));
+      } else {
+        setForgotSent(true);
+      }
+    } catch {
+      setErrorMsg(
+        es ? 'No se pudo conectar. Inténtalo de nuevo.' : 'Could not connect. Try again.',
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -230,7 +260,143 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
               </div>
             )}
 
-            {signupDone ? (
+            {forgotView ? (
+              // ----- Vista de recuperar contraseña -----
+              forgotSent ? (
+                // --- Pantalla "email enviado" (reset) ---
+                <div
+                  className="rounded-[2rem] p-8 text-center"
+                  style={{ background: 'white', border: `1.5px solid ${C.creamWarm}` }}
+                >
+                  <div
+                    className="w-16 h-16 rounded-3xl flex items-center justify-center mx-auto mb-5"
+                    style={{ background: C.mustardSoft }}
+                  >
+                    <Mail className="w-7 h-7" style={{ color: C.mustardDark }} />
+                  </div>
+                  <h2 className="text-2xl mb-2" style={{ fontWeight: 700, color: C.brown }}>
+                    {es ? 'Revisa tu correo' : 'Check your email'}
+                  </h2>
+                  <p className="text-sm mb-2" style={{ color: C.brownSoft }}>
+                    {es
+                      ? 'Si ese correo tiene una cuenta, te enviamos un enlace para crear una nueva contraseña. Revisa también la carpeta de spam.'
+                      : 'If that email has an account, we sent you a link to create a new password. Check your spam folder too.'}
+                  </p>
+                  <p className="text-sm mb-6" style={{ color: C.mustardDark, fontWeight: 600 }}>
+                    {email}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotView(false); setForgotSent(false); setErrorMsg(''); }}
+                    className="w-full py-3.5 rounded-2xl transition-all hover:shadow-lg hover:scale-[1.01]"
+                    style={{ background: C.brown, color: C.cream, fontWeight: 600 }}
+                  >
+                    {es ? 'Volver al inicio de sesión' : 'Back to sign in'}
+                  </button>
+                </div>
+              ) : (
+                // --- Formulario "olvidé contraseña" ---
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setForgotView(false); setErrorMsg(''); }}
+                    className="flex items-center gap-2 mb-6 text-sm hover:opacity-70 transition-opacity"
+                    style={{ color: C.brownSoft }}
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    {es ? 'Volver' : 'Back'}
+                  </button>
+                  <div
+                    className="text-xs uppercase tracking-[0.2em] mb-4"
+                    style={{ color: C.mustardDark, fontWeight: 600 }}
+                  >
+                    — {es ? 'Recuperar acceso' : 'Recover access'}
+                  </div>
+                  <h1
+                    className="text-4xl md:text-5xl tracking-tight mb-3"
+                    style={{
+                      fontWeight: 700,
+                      color: C.brown,
+                      lineHeight: 1.1,
+                      letterSpacing: '-0.025em',
+                    }}
+                  >
+                    {es ? '¿Olvidaste tu' : 'Forgot your'}
+                    <br />
+                    <span style={{ color: C.mustardDark }}>
+                      {es ? 'contraseña?' : 'password?'}
+                    </span>
+                  </h1>
+                  <p className="mb-10" style={{ color: C.brownSoft }}>
+                    {es
+                      ? 'Ingresa tu correo y te enviamos un enlace para crear una nueva contraseña.'
+                      : "Enter your email and we'll send you a link to create a new password."}
+                  </p>
+                  <form onSubmit={handleForgot} className="space-y-5">
+                    <div>
+                      <label
+                        className="block text-sm mb-2"
+                        style={{ color: C.brown, fontWeight: 500 }}
+                      >
+                        {es ? 'Correo' : 'Email'}
+                      </label>
+                      <div className="relative">
+                        <Mail
+                          className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4"
+                          style={{ color: C.brownLight }}
+                        />
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          placeholder="tu@ejemplo.com"
+                          className="w-full pl-11 pr-4 py-3.5 rounded-2xl focus:outline-none transition-all"
+                          style={{
+                            background: 'white',
+                            border: `1.5px solid ${C.creamWarm}`,
+                            color: C.brown,
+                          }}
+                          onFocus={(e) => (e.target.style.borderColor = C.mustard)}
+                          onBlur={(e) => (e.target.style.borderColor = C.creamWarm)}
+                          required
+                        />
+                      </div>
+                    </div>
+                    {errorMsg && (
+                      <div
+                        className="rounded-2xl px-4 py-3 text-sm"
+                        style={{ background: ERROR_BG, color: ERROR_FG }}
+                      >
+                        {errorMsg}
+                      </div>
+                    )}
+                    <button
+                      type="submit"
+                      disabled={loading || !email.trim()}
+                      className="w-full py-4 rounded-2xl transition-all hover:shadow-lg hover:scale-[1.01] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      style={{
+                        background: C.mustard,
+                        color: C.brown,
+                        fontWeight: 600,
+                        boxShadow: `0 6px 20px ${C.mustard}40`,
+                      }}
+                    >
+                      {loading ? (
+                        <>
+                          <div
+                            className="w-4 h-4 border-2 rounded-full animate-spin"
+                            style={{ borderColor: C.brown, borderTopColor: 'transparent' }}
+                          />
+                          {es ? 'Enviando...' : 'Sending...'}
+                        </>
+                      ) : (
+                        es ? 'Enviar instrucciones' : 'Send instructions'
+                      )}
+                    </button>
+                  </form>
+                </>
+              )
+            ) : signupDone ? (
               // ----- Pantalla "revisa tu correo" -----
               <div
                 className="rounded-[2rem] p-8 text-center"
@@ -328,13 +494,14 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
                         {L.password}
                       </label>
                       {mode === 'signin' && (
-                        <a
-                          href="#"
-                          className="text-xs"
+                        <button
+                          type="button"
+                          onClick={() => { setForgotView(true); setErrorMsg(''); }}
+                          className="text-xs hover:opacity-70 transition-opacity"
                           style={{ color: C.mustardDark, fontWeight: 500 }}
                         >
-                          {L.forgot}
-                        </a>
+                          {es ? '¿Olvidaste tu contraseña?' : 'Forgot your password?'}
+                        </button>
                       )}
                     </div>
                     <div className="relative">

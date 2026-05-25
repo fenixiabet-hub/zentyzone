@@ -39,6 +39,7 @@ import { Onboarding } from './components/pages/Onboarding';
 import { TermsPage } from './components/pages/TermsPage';
 import { PrivacyPage } from './components/pages/PrivacyPage';
 import { CookiesPage } from './components/pages/CookiesPage';
+import { ResetPasswordPage } from './components/pages/ResetPasswordPage';
 import { DisclaimerModal } from './components/DisclaimerModal';
 import { C } from './theme';
 import type { Lang } from './translations';
@@ -301,10 +302,14 @@ export default function App() {
         </Route>
       </Route>
 
-      {/* Páginas legales — accesibles sin autenticación */}
+      {/* Páginas legales y auth — accesibles sin autenticación */}
       <Route path="/terms"   element={<TermsPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/cookies" element={<CookiesPage />} />
+      <Route
+        path="/reset-password"
+        element={<ResetPasswordPage lang={lang} setLang={setLang} />}
+      />
 
       {/* Cualquier otra ruta → raíz */}
       <Route path="*" element={<Navigate to="/" replace />} />
