@@ -27,6 +27,13 @@ export function useSessionGuard() {
         .eq('id', user.id)
         .single();
 
+      // DEBUG — remover antes del deploy final
+      console.log('[SESSION GUARD]', {
+        activeInDB: profile?.active_session_id,
+        currentSession: localSessionId,
+        willKickout: !!(profile?.active_session_id && profile.active_session_id !== localSessionId),
+      });
+
       // Si el servidor tiene un session_id diferente → otra sesión activa
       if (
         profile?.active_session_id &&

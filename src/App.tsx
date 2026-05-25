@@ -70,6 +70,8 @@ function RequireAuth({ session }: { session: Session | null }) {
 
 // ── Ruta que requiere plan activo ──────────────────────────────────────────
 function RequirePlan({ plan, profileLoaded }: { plan: PlanStatus; profileLoaded: boolean }) {
+  // DEBUG — remover antes del deploy final
+  console.log('[PLAN GUARD]', { plan, profileLoaded, willRedirect: plan === 'canceled' && profileLoaded });
   if (!profileLoaded) return <LoadingScreen />;
   if (plan === 'canceled') return <Navigate to="/app/billing" replace />;
   return <Outlet />;
@@ -101,6 +103,8 @@ export default function App() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      // DEBUG — remover antes del deploy final
+      console.log('[AUTH STATE]', _event, 'user:', newSession?.user?.id ?? 'none');
       setSession(newSession);
       if (!newSession) {
         setPlan('canceled');
