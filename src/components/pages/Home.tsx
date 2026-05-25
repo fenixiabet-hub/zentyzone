@@ -12,11 +12,10 @@ import type { Lang } from '../../translations';
 
 import type { PlanStatus } from '../layout/AppLayout';
 
-/** Límite mensual de copias según plan. */
-function copyLimitForPlan(p: PlanStatus): number {
-  if (p === 'pro')   return Infinity;
-  if (p === 'plus')  return 25;
-  if (p === 'trial') return 10;
+/** Límite mensual de copias según plan (y chosen_plan durante el trial). */
+function copyLimitForPlan(p: PlanStatus, chosenPlan?: string | null): number {
+  if (p === 'pro' || (p === 'trial' && chosenPlan === 'pro')) return Infinity;
+  if (p === 'plus' || p === 'trial') return 25;
   return 0;
 }
 
@@ -56,6 +55,7 @@ export function Home({ lang, userId, userName }: HomeProps) {
   const es = lang === 'es';
 
   const [plan, setPlan]                       = useState<PlanStatus>('canceled');
+  const [chosenPlan, setChosenPlan]           = useState<string | null>(null);
   const [copiesThisMonth, setCopiesThisMonth] = useState(0);
   const [monthCount, setMonthCount]           = useState(0);
   const [recentNotes, setRecentNotes] = useState<RecentNote[]>([]);
@@ -70,7 +70,7 @@ export function Home({ lang, userId, userName }: HomeProps) {
 
     Promise.all([
       supabase.from('profiles')
-        .select('subscription_status, copies_this_month')
+        .select('subscription_status, copies_this_month, chosen_plan')
         .eq('id', userId)
         .single(),
       supabase.from('notes')
@@ -86,6 +86,7 @@ export function Home({ lang, userId, userName }: HomeProps) {
       if (!active) return;
       if (profileRes.data) {
         setPlan((profileRes.data.subscription_status ?? 'canceled') as PlanStatus);
+        setChosenPlan((profileRes.data as { chosen_plan?: string | null }).chosen_plan ?? null);
         setCopiesThisMonth(profileRes.data.copies_this_month ?? 0);
       }
       if (notesRes.data) setRecentNotes(notesRes.data);
@@ -96,8 +97,8 @@ export function Home({ lang, userId, userName }: HomeProps) {
     return () => { active = false; };
   }, [userId]);
 
-  const copyLimit  = copyLimitForPlan(plan);
-  const copiesLeft = plan === 'pro' ? Infinity : Math.max(0, copyLimit - copiesThisMonth);
+  const copyLimit  = copyLimitForPlan(plan, chosenPlan);
+  const copiesLeft = copyLimit === Infinity ? Infinity : Math.max(0, copyLimit - copiesThisMonth);
   const minutesSaved = monthCount * 8; // minutos ahorrados ESTE mes
 
   const stats = [
@@ -110,13 +111,13 @@ export function Home({ lang, userId, userName }: HomeProps) {
       color: plan === 'pro' ? '#3d4a2e' : C.mustardDark,
     },
     {
-      label: plan === 'pro'
+      label: copyLimit === Infinity
         ? (es ? 'Notas ilimitadas' : 'Unlimited notes')
         : (es ? 'Copias disponibles' : 'Copies available'),
-      value: plan === 'pro' ? '∞' : `${copiesLeft}/${copyLimit}`,
+      value: copyLimit === Infinity ? '∞' : `${copiesLeft}/${copyLimit}`,
       Icon: Zap,
-      bg: plan !== 'pro' && copiesLeft === 0 ? '#fbeae5' : C.cream,
-      color: plan !== 'pro' && copiesLeft === 0 ? '#b4412e' : C.brown,
+      bg: copyLimit !== Infinity && copiesLeft === 0 ? '#fbeae5' : C.cream,
+      color: copyLimit !== Infinity && copiesLeft === 0 ? '#b4412e' : C.brown,
     },
     { label: M.homeStatsSaved, value: minutesSaved, Icon: Clock, bg: C.creamSoft, color: C.brownSoft },
   ];

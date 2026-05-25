@@ -17,11 +17,12 @@
  */
 import { createClient } from '@supabase/supabase-js';
 
-// No existe plan free. canceled → 402. Límites activos: trial / plus / pro.
-/** Limite de copias/mes durante el trial (5 dias). */
-const TRIAL_COPY_LIMIT = 10;
-/** Limite de copias/mes para el plan Plus. */
-const PLUS_COPY_LIMIT  = 25;
+// No existe plan free. canceled → 402.
+// Durante el trial, el usuario tiene acceso COMPLETO al plan elegido:
+//   trial + chosen_plan='plus' → 25 copias/mes
+//   trial + chosen_plan='pro'  → ilimitado
+/** Limite de copias/mes para el plan Plus (y trial-Plus). */
+const PLUS_COPY_LIMIT = 25;
 
 type NoteType = 'rbt_daily' | 'soap' | 'bcba_progress';
 
@@ -82,7 +83,7 @@ export async function POST(request: Request): Promise<Response> {
   // ── 5. Leer perfil ───────────────────────────────────────────────────
   const { data: profile, error: profileErr } = await supabase
     .from('profiles')
-    .select('subscription_status, active_session_id, copies_this_month, last_reset_date')
+    .select('subscription_status, active_session_id, copies_this_month, last_reset_date, chosen_plan')
     .eq('id', user.id)
     .single();
 
@@ -96,8 +97,10 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   const status     = profile.subscription_status ?? 'canceled';
-  const isPro      = status === 'pro';
-  const isPlus     = status === 'plus';
+  const chosenPlan = profile.chosen_plan ?? 'plus';
+  // Durante el trial, el usuario tiene el mismo acceso que el plan que eligió.
+  const isPro      = status === 'pro' || (status === 'trial' && chosenPlan === 'pro');
+  const isPlus     = status === 'plus' || (status === 'trial' && chosenPlan !== 'pro');
   const isTrial    = status === 'trial';
   const isPastDue  = status === 'past_due';
   const isCanceled = status === 'canceled';
@@ -125,10 +128,8 @@ export async function POST(request: Request): Promise<Response> {
   let copiesThisMonth = needsReset ? 0 : (profile.copies_this_month ?? 0);
 
   // Limite segun plan (canceled y past_due ya bloqueados arriba)
-  const effectiveCopyLimit = isPro    ? Infinity
-    : isPlus  ? PLUS_COPY_LIMIT
-    : isTrial ? TRIAL_COPY_LIMIT
-    : 0; // fallback: sin cuota
+  // isPro ya cubre trial+pro, isPlus cubre trial+plus
+  const effectiveCopyLimit = isPro ? Infinity : PLUS_COPY_LIMIT;
 
   // ── 8. Verificar cuota ────────────────────────────────────────────────
   if (!isPro && copiesThisMonth >= effectiveCopyLimit) {

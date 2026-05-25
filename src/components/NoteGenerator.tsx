@@ -28,11 +28,10 @@ import type { PlanStatus } from './layout/AppLayout';
 const NOTE_TYPE: NoteType = 'rbt_daily';
 const REGEN_LIMIT = 3;   // regeneraciones por nota
 
-/** Límite mensual de copias según plan. */
-function copyLimitForPlan(p: PlanStatus): number {
-  if (p === 'pro')   return Infinity;
-  if (p === 'plus')  return 25;
-  if (p === 'trial') return 10;
+/** Límite mensual de copias según plan (y chosen_plan durante el trial). */
+function copyLimitForPlan(p: PlanStatus, chosenPlan?: string | null): number {
+  if (p === 'pro' || (p === 'trial' && chosenPlan === 'pro')) return Infinity;
+  if (p === 'plus' || p === 'trial') return 25;
   return 0; // canceled, past_due — bloqueados en el API
 }
 
@@ -74,6 +73,7 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
 
   // ── Plan y cuotas ────────────────────────────────────────────
   const [plan, setPlan]                         = useState<PlanStatus>('canceled');
+  const [chosenPlan, setChosenPlan]             = useState<string | null>(null);
   const [copiesThisMonth, setCopiesThisMonth]   = useState(0);
   const [profileLoaded, setProfileLoaded]       = useState(false);
 
@@ -87,18 +87,20 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
     let active = true;
     supabase
       .from('profiles')
-      .select('subscription_status, copies_this_month')
+      .select('subscription_status, copies_this_month, chosen_plan')
       .eq('id', userId)
       .single()
       .then(({ data, error }) => {
         if (!active) return;
         if (data && !error) {
           const status = (data.subscription_status ?? 'canceled') as PlanStatus;
+          const cp = (data as { chosen_plan?: string | null }).chosen_plan ?? null;
           setPlan(status);
+          setChosenPlan(cp);
           const copies = data.copies_this_month ?? 0;
           setCopiesThisMonth(copies);
-          const limit = copyLimitForPlan(status);
-          if (status !== 'pro' && limit > 0 && copies >= limit) setLimitReached(true);
+          const limit = copyLimitForPlan(status, cp);
+          if (limit !== Infinity && limit > 0 && copies >= limit) setLimitReached(true);
         }
         setProfileLoaded(true);
       });
@@ -212,8 +214,8 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
   // ── Botón "Darle forma" ──────────────────────────────────────
   const handleStart = async () => {
     if (!sessionInfo.trim() || isLoading) return;
-    const copyLimit = copyLimitForPlan(plan);
-    if (plan !== 'pro' && copyLimit > 0 && copiesThisMonth >= copyLimit) {
+    const copyLimit = copyLimitForPlan(plan, chosenPlan);
+    if (copyLimit !== Infinity && copyLimit > 0 && copiesThisMonth >= copyLimit) {
       const now = new Date();
       const nr  = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
       setNextReset(nr.toISOString().slice(0, 10));
@@ -273,8 +275,8 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
   };
 
   // ── Valores derivados ────────────────────────────────────────
-  const copyLimit  = copyLimitForPlan(plan);
-  const copiesLeft = plan === 'pro' ? Infinity : Math.max(0, copyLimit - copiesThisMonth);
+  const copyLimit  = copyLimitForPlan(plan, chosenPlan);
+  const copiesLeft = copyLimit === Infinity ? Infinity : Math.max(0, copyLimit - copiesThisMonth);
   const conversationActive = chat.length > 0 || noteState !== 'idle';
   const lastMessage        = chat[chat.length - 1];
   const awaitingAnswer     =
@@ -417,7 +419,7 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
             </button>
 
             {/* Indicador de uso mensual */}
-            {profileLoaded && plan !== 'pro' && copyLimit > 0 && (
+            {profileLoaded && copyLimit !== Infinity && copyLimit > 0 && (
               <p
                 className="text-center text-xs"
                 style={{ color: copiesLeft === 0 ? ERROR_FG : C.brownLight }}
@@ -427,7 +429,7 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                   : `${copiesLeft} of ${copyLimit} copies available this month`}
               </p>
             )}
-            {profileLoaded && plan === 'pro' && (
+            {profileLoaded && copyLimit === Infinity && (
               <p className="text-center text-xs" style={{ color: C.mustardDark, fontWeight: 600 }}>
                 {es ? 'Plan Pro · notas ilimitadas' : 'Pro plan · unlimited notes'}
               </p>

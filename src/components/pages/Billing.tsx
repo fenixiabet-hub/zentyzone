@@ -12,8 +12,7 @@ import { tm } from '../../translations/menu';
 import { CanceledScreen } from '../CanceledScreen';
 import type { Lang } from '../../translations';
 
-const TRIAL_COPY_LIMIT = 10;
-const PLUS_COPY_LIMIT  = 25;
+const PLUS_COPY_LIMIT = 25;
 
 interface BillingProps {
   lang: Lang;
@@ -229,11 +228,13 @@ export function Billing({ lang, userId }: BillingProps) {
   const chosenPlan      = profile?.chosen_plan          ?? null;
   const trialDaysLeft   = daysUntil(trialEndsAt);
 
-  const copyLimit = status === 'plus'  ? PLUS_COPY_LIMIT
-    : status === 'trial' ? TRIAL_COPY_LIMIT
+  // Durante trial, el limite refleja el plan elegido
+  const isUnlimited = status === 'pro' || (status === 'trial' && chosenPlan === 'pro');
+  const copyLimit   = isUnlimited ? Infinity
+    : (status === 'plus' || status === 'trial') ? PLUS_COPY_LIMIT
     : 0;
-  const copiesLeft = Math.max(0, copyLimit - copies);
-  const pct        = Math.min(100, (copies / copyLimit) * 100);
+  const copiesLeft = isUnlimited ? Infinity : Math.max(0, copyLimit - copies);
+  const pct        = isUnlimited ? 0 : (copyLimit > 0 ? Math.min(100, (copies / copyLimit) * 100) : 0);
 
   const barColor = pct >= 90 ? '#d97706' : pct >= 70 ? C.mustard : C.mustardSoft;
 
@@ -314,23 +315,46 @@ export function Billing({ lang, userId }: BillingProps) {
 
         {/* TRIAL */}
         {status === 'trial' && (
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: C.mustardSoft }}>
-              <Crown className="w-5 h-5" style={{ color: C.mustardDark }} />
-            </div>
-            <div>
-              <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingTrialDesc}</p>
-              <p className="text-sm font-semibold" style={{ color: C.mustardDark }}>
-                {chosenPlan === 'pro' ? 'Plan Pro' : 'Plan Plus'} —{' '}
-                {es ? `${trialDaysLeft} día${trialDaysLeft !== 1 ? 's' : ''} restante${trialDaysLeft !== 1 ? 's' : ''}` : `${trialDaysLeft} day${trialDaysLeft !== 1 ? 's' : ''} remaining`}
-              </p>
-              {trialEndsAt && (
-                <p className="text-xs mt-0.5" style={{ color: C.brownLight }}>
-                  {M.billingTrialEnds} {formatDate(trialEndsAt)}
+          <>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: C.mustardSoft }}>
+                <Crown className="w-5 h-5" style={{ color: C.mustardDark }} />
+              </div>
+              <div>
+                <p className="text-lg font-bold" style={{ color: C.brown }}>{M.billingTrialDesc}</p>
+                <p className="text-sm font-semibold" style={{ color: C.mustardDark }}>
+                  {chosenPlan === 'pro' ? 'Plan Pro' : 'Plan Plus'} —{' '}
+                  {es ? `${trialDaysLeft} día${trialDaysLeft !== 1 ? 's' : ''} restante${trialDaysLeft !== 1 ? 's' : ''}` : `${trialDaysLeft} day${trialDaysLeft !== 1 ? 's' : ''} remaining`}
                 </p>
-              )}
+                {trialEndsAt && (
+                  <p className="text-xs mt-0.5" style={{ color: C.brownLight }}>
+                    {M.billingTrialEnds} {formatDate(trialEndsAt)}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
+            {/* Barra de uso — solo si el plan trial es Plus (pro = ilimitado) */}
+            {!isUnlimited && (
+              <div>
+                <div className="flex justify-between text-xs mb-2" style={{ color: C.brownSoft }}>
+                  <span>{M.billingUsed} {copies} {es ? 'copias' : 'copies'}</span>
+                  <span>{copiesLeft} {es ? 'restantes' : 'remaining'}</span>
+                </div>
+                <div className="h-3 rounded-full overflow-hidden" style={{ background: C.creamSoft }}>
+                  <div className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${pct}%`, background: barColor }} />
+                </div>
+                <p className="text-xs mt-1.5 text-right" style={{ color: C.brownLight }}>
+                  {copies}/{PLUS_COPY_LIMIT} {es ? 'copias este mes' : 'copies this month'}
+                </p>
+              </div>
+            )}
+            {isUnlimited && (
+              <p className="text-xs" style={{ color: C.mustardDark, fontWeight: 600 }}>
+                {es ? 'Notas ilimitadas durante el trial' : 'Unlimited notes during trial'}
+              </p>
+            )}
+          </>
         )}
 
         {/* PLUS */}

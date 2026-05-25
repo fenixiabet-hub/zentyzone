@@ -9,9 +9,10 @@
  *   - una PREGUNTA (si le falta informacion), o
  *   - la NOTA final (en ingles y espanol).
  *
- * CUOTAS (plan free):
+ * CUOTAS:
  *   - 50 generaciones/mes — limite SILENCIOSO (no se muestra al usuario).
- *   - 10 copias/mes       — limite VISIBLE (gestionado en confirm-copy.ts).
+ *   - Plus / trial-Plus : 25 copias/mes  — gestionadas en confirm-copy.ts.
+ *   - Pro  / trial-Pro  : ilimitado       — gestionadas en confirm-copy.ts.
  *   - Reset el dia 1 de cada mes a las 00:00 UTC.
  *
  * AUTOSUFICIENTE: el System Prompt de Zenty esta aqui mismo. Si
