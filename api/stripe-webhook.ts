@@ -77,17 +77,19 @@ export async function POST(request: Request): Promise<Response> {
     period_end?: string | null;
     payment_failed?: boolean | null;
     clear_subscription?: boolean;
+    reset_copies?: boolean;        // true al inicio de cada ciclo pagado
   }) => {
     const { error } = await supabase.rpc('update_profile_from_stripe', {
-      p_stripe_customer_id: params.customer_id,
-      p_subscription_id:    params.subscription_id   ?? null,
-      p_subscription_status: params.status           ?? null,
-      p_chosen_plan:         params.chosen_plan      ?? null,
-      p_trial_started_at:    params.trial_started_at ?? null,
-      p_trial_ends_at:       params.trial_ends_at    ?? null,
-      p_period_end:          params.period_end       ?? null,
-      p_payment_failed:      params.payment_failed   ?? null,
+      p_stripe_customer_id:  params.customer_id,
+      p_subscription_id:     params.subscription_id    ?? null,
+      p_subscription_status: params.status             ?? null,
+      p_chosen_plan:         params.chosen_plan        ?? null,
+      p_trial_started_at:    params.trial_started_at   ?? null,
+      p_trial_ends_at:       params.trial_ends_at      ?? null,
+      p_period_end:          params.period_end         ?? null,
+      p_payment_failed:      params.payment_failed     ?? null,
       p_clear_subscription:  params.clear_subscription ?? false,
+      p_reset_copies:        params.reset_copies       ?? false,
     });
     if (error) console.error('RPC error:', error);
   };
@@ -147,6 +149,7 @@ export async function POST(request: Request): Promise<Response> {
           chosen_plan:     chosenPlan,
           period_end:      periodEnd,
           payment_failed:  false,
+          reset_copies:    true,   // nuevo ciclo de facturación: reset copies_this_month
         });
         break;
       }
