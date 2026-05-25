@@ -113,8 +113,13 @@ export async function POST(request: Request): Promise<Response> {
     else if (sub.status === 'active')   newStatus = chosenPlan === 'pro' ? 'pro' : 'plus';
     else return jsonResponse({ synced: false, reason: `Unexpected sub status: ${sub.status}` }, 200);
 
+    // Stripe API 2025: current_period_end fue eliminado del objeto Subscription.
+    // Usar billing_cycle_anchor como aproximación del período de renovación.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const periodEnd   = new Date(((sub as any).current_period_end as number) * 1000).toISOString();
+    const periodEndUnix = ((sub as any).current_period_end as number | undefined)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ?? ((sub as any).billing_cycle_anchor as number | undefined);
+    const periodEnd   = periodEndUnix ? new Date(periodEndUnix * 1000).toISOString() : null;
     const trialEnd    = sub.trial_end ? new Date(sub.trial_end * 1000).toISOString() : null;
 
     // ── 4. Actualizar perfil via RPC ───────────────────────────

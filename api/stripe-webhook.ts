@@ -150,10 +150,20 @@ export async function POST(request: Request): Promise<Response> {
         const customerId = invoice.customer as string;
 
         const sub        = await stripe.subscriptions.retrieve(subId);
-        const chosenPlan = (sub.metadata?.chosen_plan) ?? 'plus';
+        const chosenPlan = (sub.metadata?.chosen_plan)
+          ?? (invoice.parent?.subscription_details?.metadata?.chosen_plan as string | undefined)
+          ?? 'plus';
         const newStatus  = chosenPlan === 'pro' ? 'pro' : 'plus';
+
+        // Stripe API 2025: current_period_end fue eliminado del objeto Subscription.
+        // Usar invoice.lines[0].period.end (próxima renovación) como fallback a billing_cycle_anchor.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const periodEnd  = new Date(((sub as any).current_period_end as number) * 1000).toISOString();
+        const periodEndUnix = (invoice.lines?.data?.[0]?.period?.end as number | undefined)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          ?? ((sub as any).billing_cycle_anchor as number | undefined);
+        const periodEnd  = periodEndUnix
+          ? new Date(periodEndUnix * 1000).toISOString()
+          : null;
 
         await updateProfile({
           customer_id:     customerId,
