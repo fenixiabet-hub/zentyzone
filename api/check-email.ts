@@ -2,8 +2,8 @@
  * Zentyzone — /api/check-email
  * ------------------------------------------------------------
  * Verifica si un email ya está registrado en auth.users.
- * Usa el service role key para bypassear RLS y consultar
- * auth.users directamente via GoTrue admin REST API.
+ * Usa la función RPC `check_email_exists` (SECURITY DEFINER)
+ * que consulta auth.users con match exacto de email.
  *
  * Request:  POST { "email": "user@example.com" }
  * Response: 200  { "exists": true | false }
@@ -36,22 +36,25 @@ export async function POST(request: Request): Promise<Response> {
       return new Response(JSON.stringify({ exists: false }), { status: 200, headers: cors });
     }
 
-    // Consulta directa al endpoint admin de GoTrue — no usa el SDK
-    const url = `${supabaseUrl}/auth/v1/admin/users?email=${encodeURIComponent(email)}&page=1&per_page=1`;
-    const res = await fetch(url, {
+    // Llama a la función RPC check_email_exists (SECURITY DEFINER — accede a auth.users)
+    const rpcUrl = `${supabaseUrl}/rest/v1/rpc/check_email_exists`;
+    const res = await fetch(rpcUrl, {
+      method: 'POST',
       headers: {
+        'Content-Type': 'application/json',
         'Authorization': `Bearer ${serviceRoleKey}`,
         'apikey': serviceRoleKey,
       },
+      body: JSON.stringify({ email_to_check: email }),
     });
 
     if (!res.ok) {
-      console.error('[check-email] GoTrue admin response:', res.status);
+      console.error('[check-email] RPC error:', res.status, await res.text());
       return new Response(JSON.stringify({ exists: false }), { status: 200, headers: cors });
     }
 
-    const json = await res.json() as { users?: unknown[] };
-    const exists = Array.isArray(json.users) && json.users.length > 0;
+    // La función retorna un boolean JSON (true o false)
+    const exists = (await res.json()) === true;
 
     return new Response(JSON.stringify({ exists }), { status: 200, headers: cors });
 
