@@ -130,11 +130,24 @@ export async function POST(request: Request): Promise<Response> {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const invoice = event.data.object as any;
 
+        // Stripe API 2025: subscription puede estar en invoice.subscription (legacy)
+        // o en invoice.parent.subscription_details.subscription (nuevo formato)
+        const subId = (invoice.subscription as string | null)
+          ?? (invoice.parent?.subscription_details?.subscription as string | null)
+          ?? null;
+
+        console.log('[webhook] invoice.paid id:', invoice.id,
+          '| amount_paid:', invoice.amount_paid,
+          '| subId:', subId,
+          '| format:', invoice.subscription ? 'legacy' : 'parent.subscription_details');
+
         // Ignorar la factura $0 inicial del trial
-        if (!invoice.subscription || invoice.amount_paid === 0) break;
+        if (!subId || invoice.amount_paid === 0) {
+          console.log('[webhook] invoice.paid skipped — no subId or amount_paid=0');
+          break;
+        }
 
         const customerId = invoice.customer as string;
-        const subId      = invoice.subscription as string;
 
         const sub        = await stripe.subscriptions.retrieve(subId);
         const chosenPlan = (sub.metadata?.chosen_plan) ?? 'plus';
