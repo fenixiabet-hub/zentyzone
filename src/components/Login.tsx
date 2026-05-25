@@ -179,12 +179,6 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
           setErrorMsg(authError(error.message, lang));
         } else if (signInData.user) {
           const sessionId = crypto.randomUUID();
-          // Escribir en localStorage ANTES del await para que useSessionGuard
-          // encuentre el ID correcto si se monta durante la escritura a DB.
-          // onAuthStateChange(SIGNED_IN) dispara antes de que llegue aquí,
-          // pero React batchea el re-render, así que este setItem es síncrono
-          // y ocurre antes de que el dashboard monte.
-          localStorage.setItem('zenty_session_id', sessionId);
           await supabase
             .from('profiles')
             .update({
@@ -192,6 +186,7 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
               last_login_at: new Date().toISOString(),
             })
             .eq('id', signInData.user.id);
+          localStorage.setItem('zenty_session_id', sessionId);
         }
         // Si tiene exito, App.tsx detecta la sesion y muestra el Dashboard.
       }

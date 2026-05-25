@@ -47,10 +47,18 @@ export function useSessionGuard() {
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // Primera validación inmediata
-    checkSession();
+    // Primera validación con 2 s de gracia:
+    // El guard puede montar mientras Login.tsx aún está escribiendo
+    // active_session_id en la DB (await ~100 ms). Si corríamos
+    // checkSession() inmediatamente, el localStorage ya tenía el nuevo
+    // ID pero la DB todavía tenía el anterior → mismatch → kickout falso.
+    // Con 2 s, ambos están escritos y consistentes antes de la primera
+    // comparación. No afecta la detección de multi-dispositivo: el
+    // visibilitychange y el intervalo de 30 s cubren esos casos.
+    const initialTimer = setTimeout(checkSession, 2000);
 
     return () => {
+      clearTimeout(initialTimer);
       clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
