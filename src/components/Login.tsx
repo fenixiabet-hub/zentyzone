@@ -111,6 +111,32 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
     setLoading(true);
     try {
       if (mode === 'signup') {
+        // ── Pre-check: verificar email duplicado via endpoint propio ──────────
+        // Más robusto que el check de identities (funciona con o sin
+        // mailer_autoconfirm y sin depender del comportamiento anti-enumeration).
+        try {
+          const checkRes = await fetch('/api/check-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: cleanEmail }),
+          });
+          if (checkRes.ok) {
+            const { exists } = await checkRes.json() as { exists: boolean };
+            if (exists) {
+              setErrorMsg(
+                lang === 'es'
+                  ? 'Ese correo ya tiene una cuenta. Cambia a "Entrar" o usa "¿Olvidaste tu contraseña?".'
+                  : 'That email already has an account. Sign in or use "Forgot your password?".',
+              );
+              setLoading(false);
+              return;
+            }
+          }
+        } catch {
+          // Fail-open: si el check falla, continuar con signUp normal
+          // (el check de identities de Supabase actúa como fallback)
+        }
+
         const siteUrl =
           (import.meta.env.VITE_SITE_URL as string | undefined) || window.location.origin;
         const { data, error } = await supabase.auth.signUp({
