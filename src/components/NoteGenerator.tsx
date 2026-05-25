@@ -285,6 +285,19 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
   // ═══════════════════════════════════════════════════════════════
   return (
     <>
+      {/* ── Banner de disclaimer permanente (no removible) ── */}
+      <div
+        className="rounded-2xl px-4 py-3 flex items-center gap-2.5 mb-5"
+        style={{ background: C.mustardSoft + '60', border: `1px solid ${C.mustard}` }}
+      >
+        <span className="text-sm shrink-0">ℹ️</span>
+        <p className="text-xs leading-relaxed" style={{ color: C.mustardDark, fontWeight: 500 }}>
+          {es
+            ? 'Recordatorio: Zentyzone te ayuda a redactar. Tú revisas, firmas y eres responsable del contenido final.'
+            : 'Reminder: Zentyzone helps you draft. You review, sign, and are responsible for the final content.'}
+        </p>
+      </div>
+
       <div className="grid lg:grid-cols-2 gap-5 lg:gap-6">
 
         {/* ═════════ Panel de entrada ═════════ */}
@@ -527,6 +540,13 @@ export function NoteGenerator({ lang, userId, initialSessionInfo = '' }: NoteGen
                         </>
                       )}
                     </button>
+
+                    {/* Disclaimer bajo el botón de confirmar */}
+                    <p className="text-xs text-center px-2" style={{ color: C.mustardDark, opacity: 0.8 }}>
+                      {es
+                        ? 'Al confirmar reconoces que has revisado el contenido y asumes responsabilidad clínica por la nota.'
+                        : 'By confirming you acknowledge you have reviewed the content and assume clinical responsibility for the note.'}
+                    </p>
 
                     {/* Botón secundario — desaparece al llegar a 0 */}
                     {regenerationsLeft > 0 && (

@@ -449,6 +449,16 @@ export function Billing({ lang, userId }: BillingProps) {
             <p className="text-sm" style={{ color: C.brownSoft }}>{M.billingUpgradeDesc}</p>
           </div>
 
+          {/* Disclaimer antes de los botones de checkout */}
+          <div
+            className="rounded-2xl px-4 py-3 text-xs mb-1"
+            style={{ background: '#fef9ec', border: `1px solid ${C.mustard}`, color: C.mustardDark }}
+          >
+            {es
+              ? 'Al continuar reconoces que Zentyzone es una herramienta de redacción y que tú asumes la responsabilidad clínica del uso que le des.'
+              : 'By continuing you acknowledge that Zentyzone is a writing tool and that you assume clinical responsibility for how you use it.'}
+          </div>
+
           {checkoutError && (
             <div className="rounded-2xl px-4 py-3 text-sm"
               style={{ background: '#fbeae5', color: '#b4412e' }}>

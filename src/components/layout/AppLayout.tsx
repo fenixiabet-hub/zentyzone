@@ -93,15 +93,45 @@ export function AppLayout({
 
       {/* ── Área de contenido ── */}
       <main
-        className="flex-1 overflow-y-auto"
+        className="flex-1 overflow-y-auto flex flex-col"
         style={{ height: '100vh', minWidth: 0 }}
       >
         {/* Espacio para botón hamburguesa en móvil */}
         <div className="lg:hidden h-14" />
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-6 lg:py-8">
+        <div className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-10 py-6 lg:py-8">
           <Outlet />
         </div>
+
+        {/* ── Footer global con links legales ── */}
+        <footer
+          className="px-6 py-4 text-center text-xs"
+          style={{ borderTop: `1px solid ${C.creamWarm}`, color: C.brownLight }}
+        >
+          <p className="mb-1.5">
+            Zentyzone es un asistente de redacción. No somos clínica ni proveedor de servicios médicos.
+            · Zentyzone is a writing assistant. We are not a clinic or medical service provider.
+          </p>
+          <p className="flex items-center justify-center gap-3 flex-wrap">
+            <a href="/terms" className="hover:underline" style={{ color: C.brownLight }}>
+              Terms
+            </a>
+            <span style={{ color: C.creamWarm }}>·</span>
+            <a href="/privacy" className="hover:underline" style={{ color: C.brownLight }}>
+              Privacy
+            </a>
+            <span style={{ color: C.creamWarm }}>·</span>
+            <a href="/cookies" className="hover:underline" style={{ color: C.brownLight }}>
+              Cookies
+            </a>
+            <span style={{ color: C.creamWarm }}>·</span>
+            <a href="mailto:support@zentyzone.com" className="hover:underline" style={{ color: C.brownLight }}>
+              Contact
+            </a>
+            <span style={{ color: C.creamWarm }}>·</span>
+            <span>© 2026 Zentyzone</span>
+          </p>
+        </footer>
       </main>
 
       {/* ── Botón hamburguesa (solo móvil) ── */}

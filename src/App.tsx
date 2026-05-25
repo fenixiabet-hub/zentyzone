@@ -36,6 +36,10 @@ import { FAQ } from './components/pages/FAQ';
 import { Account } from './components/pages/Account';
 import { Billing } from './components/pages/Billing';
 import { Onboarding } from './components/pages/Onboarding';
+import { TermsPage } from './components/pages/TermsPage';
+import { PrivacyPage } from './components/pages/PrivacyPage';
+import { CookiesPage } from './components/pages/CookiesPage';
+import { DisclaimerModal } from './components/DisclaimerModal';
 import { C } from './theme';
 import type { Lang } from './translations';
 
@@ -83,6 +87,10 @@ export default function App() {
   const [notesCount, setNotesCount] = useState(0);
   const [profileLoaded, setProfileLoaded] = useState(false);
 
+  // Modal de disclaimer de primera sesión
+  const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
+  const [disclaimerChecked, setDisclaimerChecked] = useState(false);
+
   // ── Sesión Supabase ──
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -106,12 +114,13 @@ export default function App() {
   useEffect(() => {
     if (!session?.user.id) {
       setProfileLoaded(false);
+      setDisclaimerChecked(false);
       return;
     }
     setProfileLoaded(false);
     supabase
       .from('profiles')
-      .select('subscription_status, notes_generated_count')
+      .select('subscription_status, notes_generated_count, onboarding_disclaimer_acknowledged_at')
       .eq('id', session.user.id)
       .single()
       .then(({ data }) => {
@@ -128,6 +137,13 @@ export default function App() {
               ? data.notes_generated_count
               : 0,
           );
+          // Mostrar modal si nunca ha visto el disclaimer
+          const acknowledged = (data as { onboarding_disclaimer_acknowledged_at?: string | null })
+            .onboarding_disclaimer_acknowledged_at;
+          if (!acknowledged) {
+            setShowDisclaimerModal(true);
+          }
+          setDisclaimerChecked(true);
         }
         setProfileLoaded(true);
       });
@@ -178,6 +194,15 @@ export default function App() {
   const handleLogout = () => supabase.auth.signOut();
 
   return (
+    <>
+    {/* Modal de disclaimer de primera sesión */}
+    {session && disclaimerChecked && showDisclaimerModal && (
+      <DisclaimerModal
+        lang={lang}
+        userId={userId}
+        onAcknowledged={() => setShowDisclaimerModal(false)}
+      />
+    )}
     <Routes>
       {/* Raíz: Landing si no hay sesión, dashboard si la hay */}
       <Route
@@ -276,8 +301,14 @@ export default function App() {
         </Route>
       </Route>
 
+      {/* Páginas legales — accesibles sin autenticación */}
+      <Route path="/terms"   element={<TermsPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/cookies" element={<CookiesPage />} />
+
       {/* Cualquier otra ruta → raíz */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </>
   );
 }

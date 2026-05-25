@@ -21,6 +21,10 @@ const ERROR_FG = '#b4412e';
 
 type Mode = 'signin' | 'signup';
 
+// Colores de la caja de disclaimer
+const DISC_BG  = '#fef9ec';
+const DISC_BD  = '#d4a544';
+
 /** Traduce los mensajes de error de Supabase a algo claro y amable. */
 function authError(message: string, lang: Lang): string {
   const m = message.toLowerCase();
@@ -71,6 +75,7 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [signupDone, setSignupDone] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   const [searchParams] = useSearchParams();
   const sessionTaken = searchParams.get('reason') === 'session_taken';
@@ -91,6 +96,14 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
       );
       return;
     }
+    if (mode === 'signup' && !termsAccepted) {
+      setErrorMsg(
+        lang === 'es'
+          ? 'Debes confirmar que entiendes los términos antes de crear tu cuenta.'
+          : 'You must confirm you understand the terms before creating your account.',
+      );
+      return;
+    }
 
     setErrorMsg('');
     setLoading(true);
@@ -101,7 +114,13 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
         const { data, error } = await supabase.auth.signUp({
           email: cleanEmail,
           password,
-          options: { emailRedirectTo: siteUrl },
+          options: {
+            emailRedirectTo: siteUrl,
+            data: {
+              terms_accepted_at: new Date().toISOString(),
+              terms_version: 'v1.0',
+            },
+          },
         });
         if (error) {
           setErrorMsg(authError(error.message, lang));
@@ -114,6 +133,13 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
               : 'That email already has an account. Switch to "Sign in".',
           );
         } else {
+          // Guardar terms_accepted_at en profiles si el user fue creado
+          if (data.user) {
+            await supabase.from('profiles').update({
+              terms_accepted_at: new Date().toISOString(),
+              terms_version: 'v1.0',
+            }).eq('id', data.user.id);
+          }
           setSignupDone(true);
         }
       } else {
@@ -150,6 +176,7 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
   const handleToggleMode = () => {
     setMode((m) => (m === 'signin' ? 'signup' : 'signin'));
     setErrorMsg('');
+    setTermsAccepted(false);
   };
 
   return (
@@ -344,6 +371,61 @@ export function Login({ lang, setLang, onBackToLanding }: LoginProps) {
                       </button>
                     </div>
                   </div>
+
+                  {/* Checkbox de disclaimer — solo en modo signup */}
+                  {mode === 'signup' && (
+                    <div
+                      className="rounded-2xl p-4"
+                      style={{ background: DISC_BG, border: `1.5px solid ${DISC_BD}` }}
+                    >
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={termsAccepted}
+                          onChange={(e) => setTermsAccepted(e.target.checked)}
+                          className="mt-0.5 shrink-0 w-4 h-4 rounded"
+                          style={{ accentColor: C.mustardDark }}
+                        />
+                        <span className="text-xs leading-relaxed" style={{ color: C.brown }}>
+                          {es ? (
+                            <>
+                              Confirmo que entiendo que:{' '}
+                              <strong>Zentyzone es un asistente de redacción, NO una clínica ni un proveedor de servicios médicos.</strong>{' '}
+                              Soy 100% responsable de revisar, validar y firmar cada nota antes de usarla profesionalmente.
+                              Soy responsable de la información que ingreso y de cumplir con las leyes de mi estado.
+                              Acepto los{' '}
+                              <a href="/terms" target="_blank" rel="noopener noreferrer"
+                                style={{ color: C.mustardDark, fontWeight: 600 }}>
+                                Términos de Servicio
+                              </a>{' '}
+                              y la{' '}
+                              <a href="/privacy" target="_blank" rel="noopener noreferrer"
+                                style={{ color: C.mustardDark, fontWeight: 600 }}>
+                                Política de Privacidad
+                              </a>.
+                            </>
+                          ) : (
+                            <>
+                              I confirm I understand that:{' '}
+                              <strong>Zentyzone is a writing assistant, NOT a clinic or medical service provider.</strong>{' '}
+                              I am 100% responsible for reviewing, validating, and signing each note before professional use.
+                              I am responsible for the information I enter and for complying with the laws of my state.
+                              I accept the{' '}
+                              <a href="/terms" target="_blank" rel="noopener noreferrer"
+                                style={{ color: C.mustardDark, fontWeight: 600 }}>
+                                Terms of Service
+                              </a>{' '}
+                              and{' '}
+                              <a href="/privacy" target="_blank" rel="noopener noreferrer"
+                                style={{ color: C.mustardDark, fontWeight: 600 }}>
+                                Privacy Policy
+                              </a>.
+                            </>
+                          )}
+                        </span>
+                      </label>
+                    </div>
+                  )}
 
                   {errorMsg && (
                     <div
