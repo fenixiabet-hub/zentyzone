@@ -45,6 +45,59 @@ export function Billing({ lang, userId }: BillingProps) {
 
   const checkoutResult = searchParams.get('checkout'); // 'success' | 'canceled'
   const checkoutPlan   = searchParams.get('plan');     // 'plus' | 'pro'
+  const checkoutSessionId = searchParams.get('session_id'); // cs_test_...
+
+  // ── Auto-sync cuando Stripe redirige con ?checkout=success ────────────────
+  // Usa el session_id que Stripe pone en la URL para verificar directamente
+  // el pago y actualizar el perfil. Bypass total del webhook.
+  useEffect(() => {
+    if (checkoutResult !== 'success' || !userId) return;
+
+    let attempts = 0;
+    const MAX_ATTEMPTS = 4;
+
+    const doSync = async (): Promise<boolean> => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.access_token) return false;
+
+        const res = await fetch('/api/sync-subscription', {
+          method:  'POST',
+          headers: {
+            'Content-Type':  'application/json',
+            Authorization:   `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ sessionId: checkoutSessionId }),
+        });
+        const json = await res.json() as { synced?: boolean; status?: string };
+
+        if (json.synced) {
+          // Refrescar perfil local de Billing
+          const { data } = await supabase
+            .from('profiles')
+            .select('subscription_status, copies_this_month, notes_generated_count, pro_renewal_date, chosen_plan, trial_ends_at, subscription_current_period_end, payment_failed, stripe_customer_id')
+            .eq('id', userId)
+            .single();
+          if (data) setProfile(data as Profile);
+          return true;
+        }
+        return false;
+      } catch { return false; }
+    };
+
+    const retry = async () => {
+      const ok = await doSync();
+      if (ok) return;
+      attempts++;
+      if (attempts < MAX_ATTEMPTS) {
+        // Reintentar con back-off: 2s, 4s, 8s
+        setTimeout(retry, 2000 * attempts);
+      }
+    };
+
+    retry();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkoutResult, userId, checkoutSessionId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -159,10 +212,13 @@ export function Billing({ lang, userId }: BillingProps) {
   const status           = profile?.subscription_status ?? 'canceled';
   const stripeCustomerId = profile?.stripe_customer_id ?? null;
 
-  // Pantalla de reactivación SOLO si el usuario ya tuvo suscripción antes
-  // (tiene stripe_customer_id). Usuarios nuevos muestran selección de plan.
-  if (status === 'canceled' && stripeCustomerId) {
-    return <CanceledScreen lang={lang} userId={userId} />;
+  // Pantalla de reactivación SOLO si el usuario realmente tuvo una suscripción activa antes.
+  // chosen_plan solo se establece cuando el webhook checkout.session.completed confirma la
+  // suscripción. Si chosen_plan es null, el usuario abrió el checkout pero lo abandonó
+  // → mostrar cards de plan en lugar de CanceledScreen.
+  const hadSubscription = !!profile?.chosen_plan;
+  if (status === 'canceled' && stripeCustomerId && hadSubscription) {
+    return <CanceledScreen lang={lang} userId={userId} onStartCheckout={startCheckout} />;
   }
 
   const copies          = profile?.copies_this_month   ?? 0;
@@ -236,8 +292,8 @@ export function Billing({ lang, userId }: BillingProps) {
           {M.billingCurrentPlan}
         </p>
 
-        {/* NUEVO USUARIO (canceled sin customer_id) — nunca ha tenido plan */}
-        {status === 'canceled' && !stripeCustomerId && (
+        {/* SIN PLAN (canceled, sin suscripción previa) */}
+        {status === 'canceled' && (
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl flex items-center justify-center" style={{ background: C.creamWarm }}>
               <Zap className="w-5 h-5" style={{ color: C.brownSoft }} />
@@ -247,7 +303,10 @@ export function Billing({ lang, userId }: BillingProps) {
                 {es ? 'Sin plan activo' : 'No active plan'}
               </p>
               <p className="text-sm" style={{ color: C.brownSoft }}>
-                {es ? 'Elige un plan para empezar.' : 'Choose a plan to get started.'}
+                {stripeCustomerId && !hadSubscription
+                  ? (es ? 'El proceso de pago no se completó. Elige un plan para empezar.' : 'Checkout was not completed. Choose a plan to get started.')
+                  : (es ? 'Elige un plan para empezar.' : 'Choose a plan to get started.')
+                }
               </p>
             </div>
           </div>
@@ -357,8 +416,8 @@ export function Billing({ lang, userId }: BillingProps) {
         )}
       </div>
 
-      {/* ── Planes disponibles (usuario nuevo sin plan activo) ───────────── */}
-      {(status === 'canceled' && !stripeCustomerId) && (
+      {/* ── Planes disponibles (sin suscripción activa: nuevo o checkout abandonado) ── */}
+      {(status === 'canceled' && !hadSubscription) && (
         <>
           {/* Header de la sección */}
           <div className="text-center py-2">

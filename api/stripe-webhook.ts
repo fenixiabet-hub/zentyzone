@@ -31,24 +31,33 @@ export async function POST(request: Request): Promise<Response> {
     return jsonResponse({ error: 'Server configuration missing.' }, 500);
   }
 
-  // ── 1. Leer body raw (necesario para verificar firma) ──────
-  const rawBody  = await request.text();
-  const signature = request.headers.get('stripe-signature');
-  const stripe   = new Stripe(stripeKey);
+  // ── 1. Leer body raw como Buffer (requerido por Stripe para verificar firma) ──
+  const rawBodyBuffer = Buffer.from(await request.arrayBuffer());
+  const signature     = request.headers.get('stripe-signature');
+  const stripe        = new Stripe(stripeKey);
+
+  // Diagnóstico (se puede quitar después)
+  console.log('[webhook] secret length:', webhookSecret?.length ?? 0,
+    '| secret prefix:', webhookSecret?.slice(0, 8) ?? 'none',
+    '| sig present:', !!signature,
+    '| body bytes:', rawBodyBuffer.length);
 
   // ── 2. Verificar firma ─────────────────────────────────────
   let event: Stripe.Event;
   if (webhookSecret && signature) {
     try {
-      event = stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+      event = stripe.webhooks.constructEvent(rawBodyBuffer, signature, webhookSecret);
     } catch (err) {
-      console.error('Webhook signature error:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error('[webhook] Signature error:', msg,
+        '| secret_len:', webhookSecret.length,
+        '| secret_char0:', webhookSecret.charCodeAt(0));
       return jsonResponse({ error: 'Invalid signature.' }, 400);
     }
   } else {
-    // Sin secret → solo en test mode sin firma configurada
+    // Sin secret → test mode sin firma configurada
     try {
-      event = JSON.parse(rawBody) as Stripe.Event;
+      event = JSON.parse(rawBodyBuffer.toString('utf-8')) as Stripe.Event;
     } catch {
       return jsonResponse({ error: 'Invalid JSON.' }, 400);
     }

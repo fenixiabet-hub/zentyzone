@@ -102,7 +102,7 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Perfil del usuario (para el sidebar y RequirePlan) ──
+  // ── Perfil del usuario (carga inicial) ──────────────────
   useEffect(() => {
     if (!session?.user.id) {
       setProfileLoaded(false);
@@ -131,6 +131,41 @@ export default function App() {
         }
         setProfileLoaded(true);
       });
+  }, [session?.user.id]);
+
+  // ── Realtime: actualiza plan cuando Supabase cambia ─────
+  // Cuando el webhook o sync-subscription actualizan el perfil,
+  // este listener recibe el cambio y actualiza el estado global
+  // sin necesidad de recargar la página.
+  useEffect(() => {
+    if (!session?.user.id) return;
+    const channel = supabase
+      .channel(`profile-plan:${session.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event:  'UPDATE',
+          schema: 'public',
+          table:  'profiles',
+          filter: `id=eq.${session.user.id}`,
+        },
+        (payload) => {
+          const row = payload.new as { subscription_status: string; notes_generated_count: number };
+          const validStatuses: PlanStatus[] = ['trial', 'plus', 'pro', 'past_due', 'canceled'];
+          const rawStatus = row.subscription_status as string;
+          setPlan(
+            validStatuses.includes(rawStatus as PlanStatus)
+              ? (rawStatus as PlanStatus)
+              : 'canceled',
+          );
+          if (typeof row.notes_generated_count === 'number') {
+            setNotesCount(row.notes_generated_count);
+          }
+          setProfileLoaded(true);
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, [session?.user.id]);
 
   if (checkingSession) return <LoadingScreen />;

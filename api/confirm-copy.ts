@@ -1,3 +1,4 @@
+/// <reference types="node" />
 /**
  * Zentyzone — Funcion serverless "confirm-copy"
  * ------------------------------------------------------------
@@ -6,7 +7,7 @@
  *
  *   1. Valida la sesion unica (sessionId vs profiles.active_session_id).
  *   2. Verifica la cuota de copias segun plan:
- *      - free / canceled : 5 / mes
+ *      - canceled        : bloqueado (402)
  *      - trial           : 10 / mes (cubre los 5 dias de prueba)
  *      - plus            : 25 / mes
  *      - pro             : ilimitado
@@ -151,7 +152,6 @@ export async function POST(request: Request): Promise<Response> {
     copies_this_month: isPro ? copiesThisMonth : newCopiesCount,
   };
   if (needsReset) {
-    updateData.generations_this_month = 0;
     updateData.last_reset_date = today;
   }
 

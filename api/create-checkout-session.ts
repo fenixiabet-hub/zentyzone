@@ -100,8 +100,8 @@ export async function POST(request: Request): Promise<Response> {
         metadata: { supabase_user_id: user.id, chosen_plan: plan },
       },
       success_url: origin === 'onboarding'
-        ? `${siteUrl}/onboarding?checkout=success&plan=${plan}`
-        : `${siteUrl}/app/billing?checkout=success&plan=${plan}`,
+        ? `${siteUrl}/onboarding?checkout=success&plan=${plan}&session_id={CHECKOUT_SESSION_ID}`
+        : `${siteUrl}/app/billing?checkout=success&plan=${plan}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: origin === 'onboarding'
         ? `${siteUrl}/onboarding?checkout=canceled`
         : `${siteUrl}/app/billing?checkout=canceled`,
